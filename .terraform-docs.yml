@@ -1,0 +1,9 @@
+formatter: markdown table
+sort:
+  enabled: true
+  by: name
+settings:
+  anchor: false
+  default: true
+  required: true
+  type: true
