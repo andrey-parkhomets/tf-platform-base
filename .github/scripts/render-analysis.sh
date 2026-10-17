@@ -21,6 +21,7 @@ echo
 count=$(jq 'length' <<<"$MATRIX")
 total=${TOTAL:-$count}
 suggest=()
+auto=()
 valid=0
 for i in $(seq 0 $((count - 1))); do
   dir=$(jq -r ".[$i].dir" <<<"$MATRIX"); slug=$(jq -r ".[$i].slug" <<<"$MATRIX")
@@ -64,7 +65,11 @@ for i in $(seq 0 $((count - 1))); do
     echo "Skills used: $(jq -r '(.skills_used // []) | map("`" + . + "`") | join(", ")' "$report" | clean 300)"
     echo
     [[ $decision == unknown ]] || valid=$((valid + 1))
-    case "$decision" in tests_needed|tests_need_update) suggest+=("\`agent coverage $dir\`") ;; esac
+    case "$decision" in
+      tests_needed|tests_need_update)
+        if jq -e --arg d "$dir" 'any(.[]; .dir == $d)' <<<"${AUTO_DIRS:-[]}" >/dev/null 2>&1; then auto+=("\`$dir\`")
+        else suggest+=("\`agent coverage $dir\`"); fi ;;
+    esac
   else
     echo "**Decision:** none. No valid report was produced for this directory (see the workflow run)."
     echo
@@ -75,7 +80,12 @@ if [[ "$total" -gt "$count" ]]; then
   echo "_$((total - count)) more changed directories were not analysed (limit: $count per run). Use \`agent coverage <dir>\` for those._"
   echo
 fi
+if [[ ${#auto[@]} -gt 0 ]]; then
+  echo "**Writing tests now** for ${auto[*]}: the same checks as \`agent coverage\` (the agent writes, a job without secrets re-runs them, only verified tests are committed). The result is a separate comment. Undo with \`agent remove <sha>\`; opt out with the \`no-auto-pr-agent\` label."
+  echo
+fi
 if [[ ${#suggest[@]} -gt 0 ]]; then
+  [[ -n "${AUTO_REASON:-}" ]] && echo "Not written automatically: ${AUTO_REASON//[<>@]/ }." && echo
   echo "To have the tests written, verified without secrets and committed to this branch, comment (people with write access, one command per comment): ${suggest[*]}."
 elif [[ $valid -eq 0 ]]; then
   echo "The analysis did not complete, so there is no recommendation. \`agent coverage [dir]\` still writes tests on request."

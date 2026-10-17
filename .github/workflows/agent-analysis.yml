@@ -2,8 +2,12 @@ name: Terraform test agent analysis
 
 # Runs automatically on every same-repository pull request that changes a module or stack. The agent reads the change and
 # DECIDES what it needs (tests needed / tests need an update / nothing to do / not testable offline), lists the tests it
-# would write and the findings reviewers should see, and posts that as one comment. It writes nothing to the branch:
-# tests are still written only when a person comments `agent coverage` (agent-commands.yml).
+# would write and the findings reviewers should see, and posts that as one comment. The analysis itself writes nothing.
+# When it decides tests are needed (`tests_needed` / `tests_need_update`), the `write` job then calls the same reusable
+# workflow as `agent coverage` (agent-write.yml): the agent writes, a job without secrets verifies, the App commits. Limits:
+# bot pushes never start this workflow (no loop), a push by a person starts it again (that is the re-arm), at most
+# AGENT_AUTO_WRITE_MAX agent commits per pull request, label `no-auto-pr-agent` or AGENT_AUTO_WRITE=0 opt out. People can also
+# still ask by comment (`agent coverage`), and review the result like any commit (`agent remove <sha>` undoes it).
 #
 # Why `pull_request_target`: the model key is a secret, and a `pull_request` workflow runs the version of the workflow that
 # is in the PR, so the PR could change it. Here the workflow, the agent definition, the skills and the scripts all come from
@@ -261,10 +265,86 @@ jobs:
           path: ${{ steps.agent.outputs.execution_file }}
           retention-days: 7
 
+  # Which directories may be written automatically. No secrets, no model, no PR code: a script from the default branch filters
+  # the directory list by the (validated) analysis decisions, the opt-outs and the cap.
+  select:
+    name: Decide whether to write tests now
+    runs-on: ubuntu-24.04
+    needs: [detect, analyze]
+    if: ${{ !cancelled() && needs.detect.outputs.any == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+      any: ${{ steps.pick.outputs.any }}
+      reason: ${{ steps.pick.outputs.reason }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "analysis-*"
+          path: dl
+          merge-multiple: true
+        continue-on-error: true
+      - name: Pick
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MATRIX: ${{ needs.detect.outputs.matrix }}
+          REPORT_DIR: dl
+          ENABLED: ${{ vars.AGENT_AUTO_WRITE || '1' }}
+          MAX: ${{ vars.AGENT_AUTO_WRITE_MAX || '3' }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -o pipefail
+          mkdir -p dl
+          # Commits the agent already made here: bot-authored, with the message the commit job writes.
+          commits=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits" \
+            --jq '[.[] | select(.author.type == "Bot" and (.commit.message | test("^test\\([^)]*\\): (created|updated) tests via agent")))] | length' \
+            | awk '{n += $1} END {print n + 0}') || commits=x
+          AGENT_COMMITS=$commits .github/scripts/select-auto-write.sh >result.json
+          jq . result.json
+          {
+            echo "matrix=$(jq -c .matrix result.json)"
+            echo "any=$(jq -r '(.matrix | length) > 0' result.json)"
+            echo "reason=$(jq -r .reason result.json)"
+          } >>"$GITHUB_OUTPUT"
+
+  # The same implementation as `agent coverage`. The pull request's code is data; the model key, the Terraform run and the
+  # App token live in separate jobs of the called workflow, as for the comment command.
+  write:
+    name: Agent
+    needs: [detect, select]
+    if: ${{ needs.select.outputs.any == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/agent-write.yml
+    with:
+      command: coverage
+      matrix: ${{ needs.select.outputs.matrix }}
+      head_sha: ${{ github.event.pull_request.head.sha }}
+      base_sha: ${{ github.event.pull_request.base.sha }}
+      head_ref: ${{ github.event.pull_request.head.ref }}
+      pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+      has_threads: ${{ 'false' }}
+      requester: automatic
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+
   post:
     name: Post the analysis
     runs-on: ubuntu-24.04
-    needs: [detect, analyze]
+    needs: [detect, analyze, select]
     if: ${{ !cancelled() && needs.detect.outputs.any == 'true' }}
     # The only job with a write token. It runs no model and no PR code, only a script from the default branch.
     permissions:
@@ -286,6 +366,8 @@ jobs:
         env:
           MATRIX: ${{ needs.detect.outputs.matrix }}
           TOTAL: ${{ needs.detect.outputs.total }}
+          AUTO_DIRS: ${{ needs.select.outputs.matrix }}
+          AUTO_REASON: ${{ needs.select.outputs.reason }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p .agent/report

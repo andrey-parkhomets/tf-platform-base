@@ -185,6 +185,33 @@ cd "$repo" || exit 1
 expect_rc "no workflow inherits all secrets" 1 grep -rq 'secrets: inherit' .github/workflows
 is "the write path has one implementation" "$(grep -lE 'claude-code-action' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "agent-analysis.yml agent-write.yml "
 
+echo "== select-auto-write.sh"
+r="$tmp/sel"; mkdir -p "$r/rep"; cd "$r" || exit 1
+m='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"},{"dir":"modules/c","slug":"modules-c"},{"dir":"modules/d","slug":"modules-d"}]'
+echo '{"dir":"modules/a","decision":"tests_needed"}' >rep/modules-a.json
+echo '{"dir":"modules/b","decision":"no_change_needed"}' >rep/modules-b.json
+echo '{"dir":"modules/OTHER","decision":"tests_needed"}' >rep/modules-c.json      # dir does not match the slug's directory
+echo '{"dir":"modules/d","decision":"tests_need_update"}' >rep/modules-d.json
+sel() { MATRIX="$m" REPORT_DIR=rep HEAD_REF=feat/x AGENT_COMMITS=${AGENT_COMMITS:-0} MAX=${MAX:-3} LABELS=${LABELS:-[]} ENABLED=${ENABLED:-1} "$scripts/select-auto-write.sh"; }
+is "selects only needs-tests decisions with matching dir" "$(sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a,modules/d"
+is "no-auto-pr-agent label opts out" "$(LABELS='["x","no-auto-pr-agent"]' sel | jq -r '(.matrix|length|tostring) + ":" + .reason')" "0:the pull request has the no-auto-pr-agent label"
+is "switch-off variable" "$(ENABLED=0 sel | jq -r '.matrix|length')" 0
+is "cap reached selects nothing" "$(AGENT_COMMITS=3 sel | jq -r '.matrix|length')" 0
+is "cap leaves room for one directory" "$(AGENT_COMMITS=2 sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a"
+is "unknown commit count selects nothing" "$(AGENT_COMMITS=x sel | jq -r '.matrix|length')" 0
+is "odd branch name selects nothing" "$(HEAD_REF='a;b' MATRIX="$m" REPORT_DIR=rep "$scripts/select-auto-write.sh" | jq -r '.matrix|length')" 0
+echo '{"dir":"modules/a","decision":"rm -rf /"}' >rep/modules-a.json
+is "unknown decision is not selected" "$(sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/d"
+
+echo "== render-analysis.sh (automatic writing)"
+r="$tmp/ra2"; mkdir -p "$r/.agent/report"; cd "$r" || exit 1
+echo '{"dir":"modules/a","decision":"tests_needed","rationale":"x"}' >.agent/report/modules-a.json
+echo '{"dir":"modules/b","decision":"tests_needed","rationale":"x"}' >.agent/report/modules-b.json
+out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"}]' AUTO_DIRS='[{"dir":"modules/a"}]' AUTO_REASON='' "$scripts/render-analysis.sh")
+is "selected directory is announced, the other one is suggested" "$(grep -c 'Writing tests now' <<<"$out") $(grep -c 'agent coverage modules/b' <<<"$out") $(grep -c 'agent coverage modules/a' <<<"$out")" "1 1 0"
+out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' AUTO_DIRS='[]' AUTO_REASON='the pull request has the no-auto-pr-agent label' "$scripts/render-analysis.sh")
+is "reason for not writing is shown" "$(grep -c 'Not written automatically: the pull request has the no-auto-pr-agent label' <<<"$out")" 1
+
 echo
 [[ $fail -eq 0 ]] && echo "all guard tests passed" || echo "SOME GUARD TESTS FAILED"
 exit $fail
