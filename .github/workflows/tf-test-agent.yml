@@ -310,7 +310,7 @@ jobs:
           claude_args: >-
             --agent tf-test-agent
             --model ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
-            --max-turns 40
+            --max-turns ${{ vars.AGENT_MAX_TURNS || '60' }}
             --allowedTools "Read,Grep,Glob,Skill,Edit(modules/*/tests/**),Edit(stacks/*/tests/**),Edit(.agent/report/**),Bash(terraform -chdir=modules/* fmt*),Bash(terraform -chdir=modules/* init*),Bash(terraform -chdir=modules/* validate*),Bash(terraform -chdir=modules/* test*),Bash(terraform -chdir=stacks/* fmt*),Bash(terraform -chdir=stacks/* init*),Bash(terraform -chdir=stacks/* validate*),Bash(terraform -chdir=stacks/* test*),Bash(terraform fmt *),Bash(git diff*),Bash(git status*),Bash(git log*),Bash(${{ steps.trusted.outputs.quality_check }} *),Bash(codegraph explore *)"
             --disallowedTools "WebFetch,WebSearch"
 
@@ -330,20 +330,28 @@ jobs:
           done
 
       - name: Guard - only test files may have changed
+        if: always()
         run: .github/scripts/guard-paths.sh
 
       - name: Collect patch
+        if: always()
         env:
           TARGET_SLUG: ${{ matrix.slug }}
+          AGENT_DEFINED: ${{ steps.defs.outputs.present }}
         run: |
           mkdir -p .agent/out
           specs=(':(glob)modules/*/tests/*' ':(glob)stacks/*/tests/*')
           git ls-files -z --others --exclude-standard -- "${specs[@]}" | xargs -0 -r git add -N --
           git diff --binary -- "${specs[@]}" >".agent/out/tests.patch"
-          cp ".agent/report/${TARGET_SLUG}.json" .agent/out/report.json 2>/dev/null || echo '{}' >.agent/out/report.json
+          if [ "$AGENT_DEFINED" != "true" ]; then
+            echo '{"skipped": "agent_definition_not_on_base"}' >.agent/out/report.json
+          else
+            cp ".agent/report/${TARGET_SLUG}.json" .agent/out/report.json 2>/dev/null || echo '{}' >.agent/out/report.json
+          fi
           wc -c .agent/out/tests.patch
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
         with:
           name: tf-tests-${{ matrix.slug }}
           path: .agent/out
