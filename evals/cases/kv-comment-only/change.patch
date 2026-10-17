@@ -1,0 +1,9 @@
+diff --git a/modules/key-vault/main.tf b/modules/key-vault/main.tf
+index e9ab7d3..2efe57e 100644
+--- a/modules/key-vault/main.tf
++++ b/modules/key-vault/main.tf
+@@ -1,3 +1,4 @@
++# The vault uses role-based access control; access policies are not used.
+ resource "azurerm_key_vault" "this" {
+   name                = var.name
+   resource_group_name = var.resource_group_name

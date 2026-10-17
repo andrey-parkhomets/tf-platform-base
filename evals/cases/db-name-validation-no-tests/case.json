@@ -1,0 +1,27 @@
+{
+  "id": "db-name-validation-no-tests",
+  "description": "A new input validation in a module with no tests, whose public-network default is unsafe: the default must be reported and never pinned.",
+  "base": "8302967e0422a3487b75178f00f53d61c8aacdf1",
+  "patch": "change.patch",
+  "dir": "modules/databricks-workspace",
+  "stages": {
+    "analysis": {
+      "decision": [
+        "tests_needed"
+      ],
+      "must": [
+        {
+          "match": "public",
+          "min_severity": "low"
+        }
+      ]
+    },
+    "writer": {
+      "min_passed": 6,
+      "max_survivors": 2,
+      "forbid": [
+        "public_network_access_enabled\\s*==\\s*true"
+      ]
+    }
+  }
+}

@@ -68,6 +68,7 @@ triage Checkov, add what a scanner cannot see, write the report JSON, including 
 | **CodeGraph index, cached from `main`** | The agent finds callers and dependants (Terraform resources, variables, modules). Pinned version, `--ignore-scripts`; PRs only restore the cache and sync | A third-party tool in the agent job. Cache hit rate depends on eviction (`tf-cache-warm`) |
 | **Changed directories from `git diff`, no third-party action** | `detect-modules.sh` derives the matrix from `BASE...HEAD` and validates every name (`^(modules\|stacks)/[A-Za-z0-9][A-Za-z0-9._-]*$`, no `..`) before use; changed-files actions have been compromised in the supply chain | Nothing |
 | **Actions pinned to commit SHAs, `ubuntu-24.04`** | Supply chain and a stable runner image | Updates are deliberate |
+| **An evaluation suite, in the core** (`evals/`) | "How you control and verify them" cannot rest on guards plus a few runs. Eight fixed cases, taken from real failures (the set-versus-list pitfall, the pinned insecure default, the injection canary, the placeholder GUID, a broken existing test), run through the same prompt, tools and agent definition as production (they are rendered from shared files), and scored by deterministic checks, not by a model. It measures the first-attempt pass rate of the blind writer, the analysis decisions and findings, and the cost per run, per model, so the choice of model, the prompts and the single fix round can be defended with numbers. A hard budget per run stops it. The branch under test is treated as data in the keyed job (no code from it is run, only an allow-listed agent definition is loaded) | Built and tested offline; **no live baseline yet**, so no pass rates are claimed. Eight cases are a small sample; the fix round itself is not measured yet |
 | **Default model `claude-haiku-5-5`** | Low cost per run (an analysis is about USD 0.01; `CLAUDE_MODEL` changes the model) | Fewer edge-case tests than a larger model; see `docs/model-comparison.md` |
 
 ## How to run it
@@ -200,7 +201,7 @@ so the agent must not bless insecure behaviour (for example `ftps_state = "AllAl
 ## For a production version
 
 - Enforce the outcome: require tests (or an explicit waiver) for changed modules as a required check.
-- An evaluation suite: a fixed set of changes with expected tests and findings, scored on every model or prompt change.
+- Grow the evaluation suite (more cases, the fix round, scheduled runs with a stored baseline), and use it as a gate on every model or prompt change.
 - Federated short-lived credentials for the model API, an egress allow-list on the runner, and Terraform for the agent in a
   container without the key.
 - Signed commits through the API and branch protection that requires `verify`; Dependabot for action SHAs; a scheduled `tf-cache-warm`.

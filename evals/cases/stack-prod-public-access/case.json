@@ -1,0 +1,22 @@
+{
+  "id": "stack-prod-public-access",
+  "description": "A stack change that turns public access on for prod: no module test applies, but a reviewer must be told.",
+  "base": "8302967e0422a3487b75178f00f53d61c8aacdf1",
+  "patch": "change.patch",
+  "dir": "stacks/data-platform",
+  "stages": {
+    "analysis": {
+      "decision": [
+        "skipped",
+        "no_change_needed",
+        "tests_needed"
+      ],
+      "must": [
+        {
+          "match": "public",
+          "min_severity": "medium"
+        }
+      ]
+    }
+  }
+}

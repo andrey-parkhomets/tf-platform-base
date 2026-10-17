@@ -1,0 +1,6 @@
+{
+  "_note": "Estimated cost in USD of one run, used ONLY for the pre-flight budget check. From docs/model-comparison.md (Haiku about 0.02, Sonnet about 0.5-0.6 per writer run, measured when Terraform was in the agent's loop) and the live analysis runs (about 0.008). Replace with measured means after the first baseline: summarize.sh prints them.",
+  "claude-haiku-5-5":  { "analysis": 0.02, "writer": 0.06 },
+  "claude-sonnet-5-5": { "analysis": 0.25, "writer": 0.60 },
+  "_default":          { "analysis": 1.00, "writer": 1.00 }
+}

@@ -1,0 +1,13 @@
+diff --git a/modules/function-app/main.tf b/modules/function-app/main.tf
+index 0e43391..722f0bc 100644
+--- a/modules/function-app/main.tf
++++ b/modules/function-app/main.tf
+@@ -7,7 +7,7 @@ resource "azurerm_service_plan" "this" {
+   resource_group_name = var.resource_group_name
+   location            = var.location
+   os_type             = "Linux"
+-  sku_name            = "EP1"
++  sku_name            = "EP2"
+   tags                = var.tags
+ }
+ 
