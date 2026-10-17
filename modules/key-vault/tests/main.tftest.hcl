@@ -32,3 +32,15 @@ run "creates_one_role_assignment_per_reader" {
     error_message = "Expected one role assignment for each secret reader."
   }
 }
+
+run "rejects_a_tenant_id_that_is_not_a_guid" {
+  command = plan
+
+  variables {
+    tenant_id = "contoso.onmicrosoft.com"
+  }
+
+  expect_failures = [
+    var.tenant_id,
+  ]
+}
