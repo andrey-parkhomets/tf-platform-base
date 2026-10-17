@@ -276,6 +276,38 @@ done
 is "no job that can read the agent secrets installs Terraform" "${tfnear:-none}" none
 # commit-job exception: it declares the environment for the App secrets and installs no Terraform (covered by the same check)
 
+echo "== render-agent-config.sh (the prompt and tools shared by production and the evaluation harness)"
+cd "$repo" || exit 1
+g="$repo/scripts/fixtures/agent-config"
+export DIR=modules/private-endpoint SLUG=modules-private-endpoint BASE_SHA=aaaaaaa1 HEAD_SHA=bbbbbbb2 PR_NUMBER=22 WORKSPACE=/home/runner/work/r/r
+export QUALITY_CHECK=/home/runner/work/r/r/.agent/trusted/.github/scripts/check-test-quality.sh
+same() { # same <description> <golden file> <command...>: the output equals the text that was inline in the workflow
+  local d=$1 f=$2; shift 2
+  if diff <("$@" 2>&1) "$f" >/dev/null; then ok "$d"; else bad "$d"; fi
+}
+same "analysis prompt is byte-identical to the one that was inline in tf-ai-analysis"  "$g/analyze.prompt"        "$scripts/render-agent-config.sh" prompt analyze
+same "write prompt, mode coverage, is byte-identical to the former inline text"        "$g/write-coverage.prompt" "$scripts/render-agent-config.sh" prompt coverage
+same "write prompt, mode revise, is byte-identical to the former inline text"          "$g/write-revise.prompt"   "$scripts/render-agent-config.sh" prompt revise
+same "write prompt, mode fix, is byte-identical to the former inline text"             "$g/write-fix.prompt"      "$scripts/render-agent-config.sh" prompt fix
+same "analysis tool list is byte-identical to the former inline list"                  "$g/analyze.tools"         "$scripts/render-agent-config.sh" tools analyze
+same "write tool list is byte-identical to the former inline list"                     "$g/write.tools"           "$scripts/render-agent-config.sh" tools write
+expect_rc "a directory outside modules/ and stacks/ is refused" 2 env DIR='../etc' "$scripts/render-agent-config.sh" prompt analyze
+expect_rc "a directory with .. is refused"                       2 env DIR='modules/a..b' "$scripts/render-agent-config.sh" prompt analyze
+expect_rc "a non-hex SHA is refused"                             2 env BASE_SHA='main; rm -rf /' "$scripts/render-agent-config.sh" prompt analyze
+expect_rc "a non-numeric pull request number is refused"         2 env PR_NUMBER='1 2' "$scripts/render-agent-config.sh" prompt fix
+expect_rc "a relative quality-check path is refused"             2 env QUALITY_CHECK='scripts/x.sh' "$scripts/render-agent-config.sh" tools write
+expect_rc "an unknown mode is refused"                           2 "$scripts/render-agent-config.sh" prompt delete
+expect_rc "a missing value is refused"                           2 env -u SLUG "$scripts/render-agent-config.sh" prompt analyze
+mkdir -p "$tmp/cfg/prompts" "$tmp/cfg/tools"; echo 'Hello {{DIR}} and {{FORGOTTEN}}' >"$tmp/cfg/prompts/analyze.md"
+expect_rc "a placeholder nobody fills is an error, not silent text" 2 env AGENT_CONFIG_DIR="$tmp/cfg" "$scripts/render-agent-config.sh" prompt analyze
+unset DIR SLUG BASE_SHA HEAD_SHA PR_NUMBER WORKSPACE QUALITY_CHECK
+
+echo "== the agent's prompt and tools have one definition"
+cd "$repo" || exit 1
+is "no workflow carries an inline agent prompt (they use .github/agent/ through the renderer)" "$(grep -l 'Run as the tf-test-agent' .github/workflows/*.yml | wc -l | tr -d ' ')" 0
+is "the two workflows that run the model render their prompt and tools" "$(grep -l 'render-agent-config.sh' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "reusable-tf-ai-round.yml tf-ai-analysis.yml "
+is "no workflow hard-codes an --allowedTools list" "$(grep -c -- '--allowedTools "[A-Za-z]' .github/workflows/*.yml | awk -F: '{s+=$2} END{print s}')" 0
+
 echo "== select-retry.sh"
 r="$tmp/sr"; mkdir -p "$r"; cd "$r" || exit 1
 m='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"},{"dir":"modules/c","slug":"modules-c"},{"dir":"modules/d","slug":"modules-d"},{"dir":"modules/e","slug":"modules-e"},{"dir":"modules/f","slug":"modules-f"}]'
