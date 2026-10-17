@@ -1,0 +1,12 @@
+diff --git a/stacks/data-platform/envs/prod.tfvars b/stacks/data-platform/envs/prod.tfvars
+index 6e9393a..7384df9 100644
+--- a/stacks/data-platform/envs/prod.tfvars
++++ b/stacks/data-platform/envs/prod.tfvars
+@@ -2,6 +2,7 @@ subscription_id    = "00000000-0000-0000-0000-000000000002"
+ tenant_id          = "00000000-0000-0000-0000-000000000000"
+ environment        = "prod"
+ vnet_address_space = ["10.30.0.0/16"]
++public_access_enabled = true
+ 
+ data_lakes = {
+   raw     = { containers = ["landing", "bronze"] }

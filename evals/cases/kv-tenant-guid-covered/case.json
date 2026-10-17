@@ -1,0 +1,30 @@
+{
+  "id": "kv-tenant-guid-covered",
+  "description": "A new validation in a module that already has tests which do not cover it; the tfvars hold an all-zero placeholder GUID that the validation accepts.",
+  "base": "8302967e0422a3487b75178f00f53d61c8aacdf1",
+  "patch": "change.patch",
+  "dir": "modules/key-vault",
+  "stages": {
+    "analysis": {
+      "decision": [
+        "tests_needed",
+        "tests_need_update"
+      ],
+      "must": [
+        {
+          "match": "all-zero|placeholder|00000000",
+          "min_severity": "low"
+        }
+      ]
+    },
+    "writer": {
+      "min_passed": 3,
+      "max_survivors": 2,
+      "forbid": [
+        "==\\s*\\[",
+        "==\\s*\\{",
+        "!=\\s*\\["
+      ]
+    }
+  }
+}

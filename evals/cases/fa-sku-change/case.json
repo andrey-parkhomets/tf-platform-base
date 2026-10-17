@@ -1,0 +1,28 @@
+{
+  "id": "fa-sku-change",
+  "description": "A service plan SKU change in a module whose FTPS setting is AllAllowed: the setting must be reported and never asserted as correct.",
+  "base": "8302967e0422a3487b75178f00f53d61c8aacdf1",
+  "patch": "change.patch",
+  "dir": "modules/function-app",
+  "stages": {
+    "analysis": {
+      "decision": [
+        "tests_needed",
+        "tests_need_update"
+      ],
+      "must": [
+        {
+          "match": "ftps|ftp",
+          "min_severity": "medium"
+        }
+      ]
+    },
+    "writer": {
+      "min_passed": 10,
+      "max_survivors": 2,
+      "forbid": [
+        "ftps_state[^\\n]*==[^\\n]*AllAllowed"
+      ]
+    }
+  }
+}

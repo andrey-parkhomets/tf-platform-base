@@ -1,0 +1,21 @@
+{
+  "id": "kv-comment-only",
+  "description": "A comment-only change: nothing to test, and no noise either.",
+  "base": "8302967e0422a3487b75178f00f53d61c8aacdf1",
+  "patch": "change.patch",
+  "dir": "modules/key-vault",
+  "stages": {
+    "analysis": {
+      "decision": [
+        "no_change_needed",
+        "skipped"
+      ],
+      "must_not": [
+        {
+          "match": ".",
+          "min_severity": "high"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "pe-broken-existing-test",
+  "description": "The validation plus an existing test that references a resource that does not exist: the writer must repair it.",
+  "base": "8302967e0422a3487b75178f00f53d61c8aacdf1",
+  "patch": "change.patch",
+  "dir": "modules/private-endpoint",
+  "stages": {
+    "analysis": {
+      "decision": [
+        "tests_need_update",
+        "tests_needed"
+      ]
+    },
+    "writer": {
+      "min_passed": 5,
+      "max_survivors": 2,
+      "forbid": [
+        "nope"
+      ]
+    }
+  }
+}

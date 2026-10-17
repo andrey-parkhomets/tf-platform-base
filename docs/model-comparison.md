@@ -1,5 +1,7 @@
 # Model choice: sonnet vs haiku
 
+> A small, early comparison. The evaluation suite (`evals/README.md`) replaces it with fixed cases, repeats and measured cost once its first baseline is run.
+
 The default is `claude-haiku-5-5`. This is what the choice rests on. It is a small comparison, not a benchmark: one module, one
 change, one or two runs per cell, all through the real workflow and the real action run locally under `act` (a local simulation that has since been removed from the repository; see the git history).
 

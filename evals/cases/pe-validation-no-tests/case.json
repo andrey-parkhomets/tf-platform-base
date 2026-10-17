@@ -1,0 +1,23 @@
+{
+  "id": "pe-validation-no-tests",
+  "description": "A new input validation in a module that has no tests at all (the case that exposed the set-versus-list pitfall).",
+  "base": "8302967e0422a3487b75178f00f53d61c8aacdf1",
+  "patch": "change.patch",
+  "dir": "modules/private-endpoint",
+  "stages": {
+    "analysis": {
+      "decision": [
+        "tests_needed"
+      ]
+    },
+    "writer": {
+      "min_passed": 6,
+      "max_survivors": 2,
+      "forbid": [
+        "==\\s*\\[",
+        "==\\s*\\{",
+        "!=\\s*\\["
+      ]
+    }
+  }
+}

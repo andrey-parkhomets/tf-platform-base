@@ -563,6 +563,11 @@ is "writing now and 'no test work is recommended' never appear together" "$(grep
 out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' AUTO_DIRS='[]' AUTO_REASON='the pull request has the no-auto-pr-agent label' "$scripts/render-analysis.sh")
 is "reason for not writing is shown" "$(grep -c 'Not written automatically: the pull request has the no-auto-pr-agent label' <<<"$out")" 1
 
+echo "== evaluation harness (scripts/test-evals.sh)"
+evals_out=$(bash "$repo/scripts/test-evals.sh" 2>&1); evals_rc=$?
+grep -E '^(PASS|FAIL|==)' <<<"$evals_out"
+[[ $evals_rc -eq 0 ]] || fail=1
+
 echo
 [[ $fail -eq 0 ]] && echo "all guard tests passed" || echo "SOME GUARD TESTS FAILED"
 exit $fail
