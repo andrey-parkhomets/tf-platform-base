@@ -70,6 +70,14 @@ out as **data** and never executed in that job:
   key other than `name, description, metadata`, and symlinks; settings, hooks and MCP configuration are never copied;
 - scoring, which runs Terraform on what a model wrote, happens in a job **without** the key.
 
+## Cost figures
+
+`total_cost_usd` is computed **by the CLI** from its own price table. A CLI older than the model prices it wrongly: the same Haiku
+analysis was reported as USD 0.26 by CLI 2.1.292 and USD 0.0048 by 2.1.302 (tokens within 40% of each other), and production's
+measured figure for that stage is about 0.008. So the workflow pins a recent CLI (input `cli_version` overrides it), and
+`run.json` and the summary also carry **token counts**, which do not depend on any price table. Treat a USD figure as trustworthy only
+when the CLI is newer than the models it prices.
+
 ## Limits
 
 - Eight cases and two stages are a small sample. With three repeats the rates are good for comparing two configurations (a model, a
