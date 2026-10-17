@@ -9,7 +9,7 @@ set -euo pipefail
 marker='<!-- tf-test-agent-analysis -->'
 
 clean() { # clean <max chars>
-  head -c "${1:-1500}" | sed -e 's/[<>]/ /g' -e 's/@/@​/g' | tr -d '\r'
+  head -c "${1:-1500}" | sed -e 's/</‹/g' -e 's/>/›/g' -e 's/@/@​/g' | tr -d '\r'
 }
 
 echo "$marker"
