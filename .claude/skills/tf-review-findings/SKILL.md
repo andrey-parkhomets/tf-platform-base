@@ -53,6 +53,11 @@ Write `.agent/report/<slug>.json` where `<slug>` is the directory with `/` repla
 }
 ```
 
+In mode `analyze` the report has no `tests`, `threads` or `commands_run`; `decision` is one of
+`tests_needed | tests_need_update | no_change_needed | skipped`, and it adds `affected_callers` (list of directories) and
+`test_plan` (list of one-line strings). `skills_used` there is `tf-change-analysis` and `tf-review-findings`. The pipeline drops
+a report whose `dir` or `decision` does not match.
+
 `threads` is only for mode `revise`; use the `id` exactly as in `.agent/threads.json`. The pipeline replies on the thread and
 resolves it only when the outcome is `addressed` and the verified tests were committed.
 

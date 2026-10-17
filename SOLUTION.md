@@ -1,12 +1,17 @@
 # Terraform test agent: solution notes
 
-A pull request that changes Terraform gets deterministic checks automatically (lint, Checkov, the existing tests of the
-changed directories) and a comment that tells people how to ask for more. **The agent runs only when someone asks**, with a
-comment on the pull request. It writes or revises `terraform test` files, a job with no secrets re-runs them, and the verified
+A pull request that changes Terraform gets, automatically: deterministic checks (lint, Checkov, the existing tests of the
+changed directories) and **an agent analysis that decides what the change needs** (tests needed, tests need an update, nothing
+to do, not testable offline), lists the tests it would write and the findings reviewers should see. The analysis is read-only:
+no Terraform, no write token, nothing pushed. **Writing tests starts only when someone asks**, with a comment on the pull
+request. The agent then writes or revises `terraform test` files, a job with no secrets re-runs them, and the verified
 tests are **committed to the pull request branch**. People review that commit like any other, leave inline comments, and ask
 the agent to act on them or to revert the commit.
 
 ```text
+pull_request_target ──► agent-analysis.yml:  detect (no secrets) ─► analyze (model key, read-only, no Terraform) ─► post (comment only)
+                         "modules/x: tests_needed. Would write: 7 runs ... Findings: ... Comment `agent coverage modules/x`"
+
 pull_request ──► terraform-checks.yml:  detect ─► lint, checkov ─► verify (existing tests) ─► one hint comment
                                          "changed: modules/x (no tests). Comment `agent coverage`"
 
@@ -20,10 +25,10 @@ comment ──► agent-commands.yml
 
 | What | Where |
 |---|---|
-| Workflows | `.github/workflows/terraform-checks.yml` (every PR, no secrets, no model), `agent-commands.yml` (comment commands), `cache-warm.yml` (caches, `main` only) |
-| **Custom agent** | `.claude/agents/tf-test-agent.md`: role, hard rules, two modes (`coverage`, `revise`), tool list |
+| Workflows | `.github/workflows/terraform-checks.yml` (every PR, no secrets, no model), `agent-analysis.yml` (every same-repo PR, model, read-only), `agent-commands.yml` (comment commands), `cache-warm.yml` (caches, `main` only) |
+| **Custom agent** | `.claude/agents/tf-test-agent.md`: role, hard rules, three modes (`analyze`, `coverage`, `revise`), tool list |
 | **Skills** | `.claude/skills/`: `tf-change-analysis`, `tf-test-writing`, `tf-test-verify`, `tf-review-findings`, and the vendored HashiCorp `terraform-test` (pinned, see `PROVENANCE.md`) |
-| Deterministic scripts (tested by `scripts/test-guards.sh`) | `.github/scripts/`: `parse-command.sh`, `detect-modules.sh`, `guard-paths.sh`, `check-test-quality.sh`, `verify-module.sh`, `mutation-check.sh`, `commit-patch.sh`, `revert-commit.sh`, `collect-threads.sh`, `resolve-threads.sh`, `render-hint.sh`, `render-report.sh` |
+| Deterministic scripts (tested by `scripts/test-guards.sh`) | `.github/scripts/`: `parse-command.sh`, `detect-modules.sh`, `guard-paths.sh`, `check-test-quality.sh`, `verify-module.sh`, `mutation-check.sh`, `commit-patch.sh`, `revert-commit.sh`, `collect-threads.sh`, `resolve-threads.sh`, `render-hint.sh`, `render-report.sh`, `render-analysis.sh` |
 | Local checks | `scripts/test-guards.sh` (seconds, no Docker), pre-commit config, `.tflint.hcl`, `.checkov.yaml` |
 | More detail | `docs/security-review.md`, `docs/model-comparison.md`, `docs/lessons-from-github-runs.md` |
 
@@ -37,7 +42,8 @@ write the report JSON, including the outcome per review thread).
 
 | Decision | Why | What I gave up |
 |---|---|---|
-| **The agent starts from a comment, not automatically** | Cost and noise stay under human control, and a person decides when a PR is ready for tests. It also makes "add tests to modules nobody changed" possible (`agent coverage modules/x`) | No tests appear unless someone asks. The hint comment is the nudge; it can later become an enforced rule |
+| **Two tiers: the agent decides automatically, writes only on request** | Every PR gets the agent's judgment (decision, test plan, findings) at the price of one cheap read-only run per changed directory. A person then approves the expensive and write-capable step with `agent coverage`, which also works for modules nobody changed | No tests appear unless someone asks. The analysis is a recommendation; it can later become an enforced rule |
+| **The automatic run is `pull_request_target`, read-only and without Terraform** | The model key must not be exposed to a workflow the PR can edit, so the workflow, agent and skills come from the default branch. The PR is checked out as data and never executed: no Terraform is installed, tools are `Read/Grep/Glob/Skill`, `git diff/log/status`, `codegraph explore`, and a report file. A guard fails the job if any file changed; the comment is posted by a separate job that has the write token but no model | The analysis cannot run tests or see test results, so its test plan is a proposal, not a claim. Same-repo PRs only, not drafts, at most 5 directories per run (`ANALYSIS_MAX_DIRS`). Kill switch: `AGENT_AUTO_ANALYSIS=0` |
 | **Verified tests are committed to the branch** | Reviewable in the normal diff, with inline comments, and the PR's own checks run on them | Needs a GitHub App (a `GITHUB_TOKEN` push would not start the checks). One more long-lived secret |
 | **Review loop by comment: `agent check comments`** | Inline comments on the agent's test lines are the natural way to ask for a change; the agent replies and resolves the threads it addressed, and leaves the others open for a person | Only threads on `tests/` files from people with write access are read. Threads on infrastructure code are out of scope |
 | **`agent remove <sha>` is a `git revert`** | Non-destructive: history is not rewritten, no force-push, reviewers' links keep working. Only commits authored by the App, inside the PR, touching only test files | The commit stays in history next to its revert |
@@ -61,11 +67,11 @@ One-time setup:
    write**, **Pull requests: Read and write**, no webhook. Install it on this repository only. Store its id as the secret
    `AGENT_APP_ID` and the downloaded private key (the whole `.pem`) as `AGENT_APP_PRIVATE_KEY`. Without them the agent says so
    in a comment and stops before spending anything.
-3. Optional repository variables: `CLAUDE_MODEL`, `AGENT_MAX_TURNS` (default 60), `AGENT_SUBPROCESS_SCRUB` (set `0` only to
+3. Optional repository variables: `CLAUDE_MODEL`, `AGENT_MAX_TURNS` (default 60), `ANALYSIS_MAX_TURNS` (30), `ANALYSIS_MAX_DIRS` (5), `AGENT_AUTO_ANALYSIS` (`0` turns the automatic analysis off), `AGENT_SUBPROCESS_SCRUB` (set `0` only to
    run without the subprocess scrub).
 4. Merge to the default branch. `issue_comment` workflows and `.claude/` are read from there. Optionally run `Warm caches` once.
 
-Using it, in a pull request from a branch of this repository:
+The analysis needs only `ANTHROPIC_API_KEY`; without it the run is skipped with a notice. Using it, in a pull request from a branch of this repository (the analysis comment appears by itself; the commands below act on it):
 
 | Comment (the whole comment, one line) | Effect |
 |---|---|
@@ -119,6 +125,9 @@ code, so the agent is told not to bless insecure behaviour (for example `ftps_st
 
 ## Limitations
 
+- The automatic analysis (`agent-analysis.yml`) has not run on GitHub yet: it is new, it lives on the default branch only after
+  merge, and `pull_request_target` workflows are read from there. The renderer is tested locally (`scripts/test-guards.sh`) and the
+  workflow passes `actionlint`; the first real run is the next example to add. It also does not receive the Checkov SARIF.
 - The comment-driven flow is covered locally by `scripts/test-guards.sh` (the scripts) and on GitHub by the real run on pull
   request 7. There is no local simulation of the workflows. Not yet exercised on GitHub: a branch that moves during a run, and a
   fork pull request (refused by design).

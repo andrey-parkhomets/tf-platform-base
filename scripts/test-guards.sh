@@ -156,6 +156,25 @@ is "two replies, one resolve, unknown id skipped" "$(grep -c addPullRequestRevie
 is "reply text is cleaned" "$(grep -c '<b>' "$calls")" 0
 unset GH GH_CALLS GH_FIXTURE OUT
 
+echo "== render-analysis.sh"
+r="$tmp/ra"; mkdir -p "$r/.agent/report"; cd "$r" || exit 1
+matrix='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"},{"dir":"modules/c","slug":"modules-c"}]'
+cat >.agent/report/modules-a.json <<'JSON'
+{"dir":"modules/a","decision":"tests_needed","rationale":"no tests, <script>x</script> @everyone","changed_behaviours":["new validation"],
+ "test_plan":["rejects retention 29"],"affected_callers":["stacks/s1"],"skills_used":["tf-change-analysis"],
+ "findings":[{"severity":"medium","title":"t","file":"modules/a/main.tf","line":3,"detail":"d"}]}
+JSON
+echo '{"dir":"modules/b","decision":"no_change_needed","rationale":"docs only"}' >.agent/report/modules-b.json
+out=$(MATRIX="$matrix" TOTAL=7 "$scripts/render-analysis.sh")
+is "suggests the command for tests_needed only" "$(grep -c 'agent coverage modules/a' <<<"$out") $(grep -c 'agent coverage modules/b' <<<"$out")" "1 0"
+is "HTML and mentions are neutralised" "$(grep -c '<script>' <<<"$out") $(grep -c '@everyone' <<<"$out")" "0 0"
+is "missing report is stated" "$(grep -c 'No valid report' <<<"$out")" 1
+is "truncation is stated" "$(grep -c '4 more changed directories' <<<"$out")" 1
+is "comment has its own marker" "$(head -1 <<<"$out")" "<!-- tf-test-agent-analysis -->"
+echo '{"dir":"modules/a","decision":"rm -rf /"}' >.agent/report/modules-a.json
+out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-analysis.sh")
+is "unknown decision is not echoed or acted on" "$(grep -c 'rm -rf' <<<"$out") $(grep -c 'agent coverage modules/a' <<<"$out")" "0 0"
+
 echo
 [[ $fail -eq 0 ]] && echo "all guard tests passed" || echo "SOME GUARD TESTS FAILED"
 exit $fail

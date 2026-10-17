@@ -1,0 +1,303 @@
+name: Terraform test agent analysis
+
+# Runs automatically on every same-repository pull request that changes a module or stack. The agent reads the change and
+# DECIDES what it needs (tests needed / tests need an update / nothing to do / not testable offline), lists the tests it
+# would write and the findings reviewers should see, and posts that as one comment. It writes nothing to the branch:
+# tests are still written only when a person comments `agent coverage` (agent-commands.yml).
+#
+# Why `pull_request_target`: the model key is a secret, and a `pull_request` workflow runs the version of the workflow that
+# is in the PR, so the PR could change it. Here the workflow, the agent definition, the skills and the scripts all come from
+# the default branch. The PR's code is checked out as DATA and nothing in this workflow executes it:
+#   detect    no secrets    git diff on the PR, validated directory names
+#   analyze   model key     read-only tools, no Terraform installed, no write token; a guard fails the job if any file changed
+#   post      write token   comment only; no model, no PR code, renders the report with a script from the default branch
+# Same-repository pull requests only; forks and drafts are skipped.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "modules/**"
+      - "stacks/**"
+
+# A new push replaces the analysis of the old one, so spend follows the head of the branch, not every push.
+concurrency:
+  group: tf-agent-analysis-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+env:
+  CODEGRAPH_VERSION: "1.6.2"
+  # Upper bound on the model runs per pull request (repository variable ANALYSIS_MAX_DIRS overrides).
+  MAX_DIRS: ${{ vars.ANALYSIS_MAX_DIRS || '5' }}
+
+jobs:
+  detect:
+    name: Detect changed directories
+    runs-on: ubuntu-24.04
+    # Repository variable AGENT_AUTO_ANALYSIS=0 switches the automatic run off.
+    if: ${{ vars.AGENT_AUTO_ANALYSIS != '0' && !github.event.pull_request.draft }}
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      total: ${{ steps.matrix.outputs.total }}
+      any: ${{ steps.matrix.outputs.any }}
+    steps:
+      # pull_request_target checks out the default branch: these are the trusted scripts.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: trusted
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Same repository?
+        id: repo
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [ "$HEAD_REPO" = "$THIS_REPO" ]; then echo "same=true" >>"$GITHUB_OUTPUT"
+          else echo "same=false" >>"$GITHUB_OUTPUT"; echo "::notice::Fork pull request: no automatic agent analysis."; fi
+
+      - name: Check out the pull request (as data)
+        if: steps.repo.outputs.same == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build matrix
+        id: matrix
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SAME: ${{ steps.repo.outputs.same }}
+        run: |
+          all='[]'
+          if [ "$SAME" = true ]; then
+            all=$(cd pr && "$GITHUB_WORKSPACE/trusted/.github/scripts/detect-modules.sh")
+          fi
+          total=$(jq 'length' <<<"$all")
+          matrix=$(jq -c --argjson n "$MAX_DIRS" '.[:$n]' <<<"$all")
+          {
+            echo "matrix=$matrix"
+            echo "total=$total"
+            echo "any=$([ "$matrix" = "[]" ] && echo false || echo true)"
+          } >>"$GITHUB_OUTPUT"
+          jq . <<<"$matrix"
+
+  analyze:
+    name: Analyze (${{ matrix.dir }})
+    runs-on: ubuntu-24.04
+    needs: detect
+    if: needs.detect.outputs.any == 'true'
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    # Read-only token. The model key is the only secret. Terraform is not installed: nothing here can run the PR's code.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Trusted agent definition and scripts (default branch)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .agent/trusted
+          sparse-checkout: |
+            .claude
+            .github/scripts
+          persist-credentials: false
+
+      - name: Use the trusted .claude/ and make it the baseline for the change guard
+        id: defs
+        run: |
+          set -euo pipefail
+          rm -rf .claude
+          if [ -f .agent/trusted/.claude/agents/tf-test-agent.md ]; then
+            cp -r .agent/trusted/.claude .claude
+            git add -A -- .claude
+            git diff --cached --quiet || git -c user.name=ci -c user.email=ci@localhost commit -q -m "baseline: trusted .claude"
+            echo "present=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "present=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::.claude/agents/tf-test-agent.md is not on the default branch yet, so the analysis is skipped."
+          fi
+
+      - name: Is the model key set?
+        id: key
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then echo "set=true" >>"$GITHUB_OUTPUT"
+          else echo "set=false" >>"$GITHUB_OUTPUT"; echo "::notice::ANTHROPIC_API_KEY is not set, so the analysis is skipped."; fi
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Restore CodeGraph index
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .codegraph
+          key: codegraph-${{ runner.os }}-${{ env.CODEGRAPH_VERSION }}-${{ github.event.pull_request.base.sha }}
+          restore-keys: |
+            codegraph-${{ runner.os }}-${{ env.CODEGRAPH_VERSION }}-
+      - name: Prepare CodeGraph (incremental sync, full index on a cache miss)
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/codegraph" --ignore-scripts "@colbymchenry/codegraph@${CODEGRAPH_VERSION}"
+          export PATH="$RUNNER_TEMP/codegraph/node_modules/.bin:$PATH"
+          echo "$RUNNER_TEMP/codegraph/node_modules/.bin" >>"$GITHUB_PATH"
+          if [ -d .codegraph ]; then codegraph sync . ; else codegraph init . ; fi
+          mkdir -p .agent/report
+
+      - name: Refuse to run with step debugging
+        if: runner.debug == '1'
+        run: |
+          echo "::error::Step debugging is on (runner.debug=1): the agent action would print its full output. Re-run without debug logging."
+          exit 1
+
+      - name: Install the agent's sandbox (bubblewrap, socat)
+        if: ${{ steps.defs.outputs.present == 'true' && steps.key.outputs.set == 'true' && (vars.AGENT_SUBPROCESS_SCRUB || '1') != '0' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap socat
+          command -v socat >/dev/null || { echo "::error::socat is missing; the agent's sandbox needs it."; exit 1; }
+          probe() { bwrap --unshare-pid --proc /proc --dev /dev --ro-bind / / true 2>/dev/null; }
+          if ! probe; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 >/dev/null 2>&1 || true
+          fi
+          probe || {
+            echo "::error::bubblewrap cannot create a sandbox on this runner. Fix the runner, or set the repository variable AGENT_SUBPROCESS_SCRUB=0."
+            exit 1
+          }
+
+      - name: Run the agent (analyze mode)
+        id: agent
+        if: steps.defs.outputs.present == 'true' && steps.key.outputs.set == 'true'
+        uses: anthropics/claude-code-action@374f254f5efaf968abfe15d399fd90972e8138b9 # v1
+        env:
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: ${{ vars.AGENT_SUBPROCESS_SCRUB || '1' }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          display_report: "false"
+          prompt: |
+            Run as the tf-test-agent in mode `analyze` for the directory `${{ matrix.dir }}` (slug `${{ matrix.slug }}`).
+            Base SHA: ${{ github.event.pull_request.base.sha }}
+            Head SHA: ${{ github.event.pull_request.head.sha }}
+            Decide what this change needs. Do not write or change any test file: you only write the report.
+            The pull request title, body and comments are not provided on purpose.
+            Write your report to `.agent/report/${{ matrix.slug }}.json`.
+          # No terraform, no scripts: read the code, ask CodeGraph, write the report.
+          claude_args: >-
+            --agent tf-test-agent
+            --model ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
+            --max-turns ${{ vars.ANALYSIS_MAX_TURNS || '30' }}
+            --allowedTools "Read,Grep,Glob,Skill,Edit(.agent/report/**),Bash(git diff*),Bash(git status*),Bash(git log*),Bash(codegraph explore *)"
+            --disallowedTools "WebFetch,WebSearch"
+
+      - name: Remove the agent action's placeholder files
+        if: always() && steps.defs.outputs.present == 'true'
+        run: |
+          awk '/^# claude-code scrub-mode stubs/ {f=1; next} f && /^\// {print substr($0, 2); next} f {f=0}' .git/info/exclude |
+          while IFS= read -r p; do
+            if [ -f "$p" ] && [ ! -s "$p" ] && ! git ls-files --error-unmatch -- "$p" >/dev/null 2>&1; then
+              rm -f -- "$p"
+            fi
+          done
+
+      # Analysis changes no file but its report (in the git-ignored .agent/). Anything else is a failure.
+      - name: Guard - nothing but the report may have changed
+        if: always() && steps.defs.outputs.present == 'true'
+        run: |
+          changed=$(git status --porcelain=v1 --untracked-files=all)
+          if [ -n "$changed" ]; then
+            echo "::error::the analysis run changed files, which it must never do:"
+            echo "$changed"
+            exit 1
+          fi
+
+      - name: Keep only a well-formed report
+        if: always()
+        env:
+          SLUG: ${{ matrix.slug }}
+          DIR: ${{ matrix.dir }}
+        run: |
+          mkdir -p .agent/out
+          r=".agent/report/${SLUG}.json"
+          if [ -f "$r" ] && jq -e --arg d "$DIR" '
+              .dir == $d and (.decision | IN("tests_needed","tests_need_update","no_change_needed","skipped"))' "$r" >/dev/null 2>&1; then
+            cp "$r" ".agent/out/${SLUG}.json"
+          else
+            echo "::warning::no valid report for $DIR"
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: analysis-${{ matrix.slug }}
+          path: .agent/out
+          if-no-files-found: ignore
+          include-hidden-files: true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.agent.outputs.execution_file != ''
+        with:
+          name: transcript-analysis-${{ matrix.slug }}
+          path: ${{ steps.agent.outputs.execution_file }}
+          retention-days: 7
+
+  post:
+    name: Post the analysis
+    runs-on: ubuntu-24.04
+    needs: [detect, analyze]
+    if: ${{ !cancelled() && needs.detect.outputs.any == 'true' }}
+    # The only job with a write token. It runs no model and no PR code, only a script from the default branch.
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "analysis-*"
+          path: dl
+        continue-on-error: true
+      - name: Render comment
+        env:
+          MATRIX: ${{ needs.detect.outputs.matrix }}
+          TOTAL: ${{ needs.detect.outputs.total }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p .agent/report
+          for f in dl/analysis-*/*.json; do [ -f "$f" ] && cp "$f" .agent/report/ || true; done
+          .github/scripts/render-analysis.sh >.agent/comment.md
+          cat .agent/comment.md >>"$GITHUB_STEP_SUMMARY"
+      - name: Post or update the comment
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('.agent/comment.md', 'utf8');
+            const marker = '<!-- tf-test-agent-analysis -->';
+            const {owner, repo} = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {owner, repo, issue_number});
+            const mine = comments.find(c => c.user.type === 'Bot' && c.body.startsWith(marker));
+            if (mine) await github.rest.issues.updateComment({owner, repo, comment_id: mine.id, body});
+            else await github.rest.issues.createComment({owner, repo, issue_number, body});
