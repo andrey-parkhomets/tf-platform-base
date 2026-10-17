@@ -4,3 +4,10 @@
 *.tfplan
 crash.log
 .env
+
+# local tooling
+.secrets
+.act/
+.agent/
+.pre-commit-cache/
+.codegraph/
