@@ -53,7 +53,7 @@ env:
   TF_IN_AUTOMATION: "true"
   # The CLI is pinned. Its install script is NOT skipped: it links the platform binary, and this package's binary is what receives the
   # key anyway, so skipping its scripts would protect nothing.
-  CLAUDE_CODE_VERSION: "2.1.292"
+  CLAUDE_CODE_VERSION: "2.1.302"
   CODEGRAPH_VERSION: "1.6.2"
 
 jobs:
