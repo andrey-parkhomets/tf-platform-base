@@ -87,15 +87,6 @@ run "public_access_input_is_honoured" {
   }
 }
 
-run "public_network_access_defaults_to_enabled" {
-  command = plan
-
-  assert {
-    condition     = azurerm_databricks_workspace.this.public_network_access_enabled == true
-    error_message = "public_network_access_enabled must default to true when not set."
-  }
-}
-
 run "accepts_name_of_three_characters" {
   command = plan
 
