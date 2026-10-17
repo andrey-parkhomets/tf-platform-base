@@ -185,6 +185,21 @@ cd "$repo" || exit 1
 expect_rc "no workflow inherits all secrets" 1 grep -rq 'secrets: inherit' .github/workflows
 is "the write path has one implementation" "$(grep -lE 'claude-code-action' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "agent-analysis.yml agent-write.yml "
 
+echo "== check-test-quality.sh (insecure defaults)"
+r="$tmp/q2"; new_repo "$r"; cd "$r" || exit 1
+t=modules/m1/tests/a.tftest.hcl
+w() { printf '%b' "$1" >"$t"; }
+w 'run "default_is_public" {\n  command = plan\n  assert {\n    condition     = azurerm_x.this.public_network_access_enabled == true\n    error_message = "m"\n  }\n}\n'
+expect_rc "asserting an insecure default fails" 1 "$scripts/check-test-quality.sh" modules/m1
+w 'run "input_is_honoured" {\n  command = plan\n  variables {\n    public_network_access_enabled = true\n  }\n  assert {\n    condition     = azurerm_x.this.public_network_access_enabled == true\n    error_message = "m"\n  }\n}\n'
+expect_rc "an explicitly set input being honoured passes" 0 "$scripts/check-test-quality.sh" modules/m1
+w 'run "secure_default" {\n  command = plan\n  assert {\n    condition     = azurerm_x.this.public_network_access_enabled == false\n    error_message = "m"\n  }\n}\n'
+expect_rc "asserting the secure value passes" 0 "$scripts/check-test-quality.sh" modules/m1
+w 'run "ftps" {\n  command = plan\n  assert {\n    condition     = azurerm_x.this.site_config[0].ftps_state == "AllAllowed"\n    error_message = "m"\n  }\n}\nrun "ok" {\n  command = plan\n  assert {\n    condition     = azurerm_x.this.name == "n"\n    error_message = "m"\n  }\n}\n'
+expect_rc "AllAllowed on the default fails, other runs unaffected" 1 "$scripts/check-test-quality.sh" modules/m1
+w 'run "tls" {\n  command = plan\n  assert {\n    condition     = azurerm_x.this.min_tls_version == "TLS1_2"\n    error_message = "m"\n  }\n}\n'
+expect_rc "TLS1_2 passes" 0 "$scripts/check-test-quality.sh" modules/m1
+
 echo "== select-auto-write.sh"
 r="$tmp/sel"; mkdir -p "$r/rep"; cd "$r" || exit 1
 m='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"},{"dir":"modules/c","slug":"modules-c"},{"dir":"modules/d","slug":"modules-d"}]'
