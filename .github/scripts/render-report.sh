@@ -148,8 +148,18 @@ for i in $(seq 0 $((count - 1))); do
 done
 
 if [[ -f .agent/checkov.sarif ]]; then
-  fails=$(jq '[.runs[]?.results[]?] | length' .agent/checkov.sarif 2>/dev/null || echo "?")
-  echo "Checkov (automated scanner, whole repository): $fails failed checks. Triage is in the findings above; raw SARIF is in the workflow run."
-  echo
+  # Scoped to the changed directories and compared with the base commit (scope-sarif.sh). The scan itself covers the whole
+  # repository, so the number for the whole repository is kept only as context.
+  mapfile -t changed_dirs < <(jq -r '.[].dir' <<<"$MATRIX")
+  base=-; [[ -f .agent/checkov-base.sarif ]] && base=.agent/checkov-base.sarif
+  if sum=$("$here/scope-sarif.sh" --summary .agent/checkov.sarif "$base" "${changed_dirs[@]}" 2>/dev/null); then
+    total=$(jq -r '.total' <<<"$sum"); inscope=$(jq -r '.in_scope' <<<"$sum")
+    if [[ $(jq -r '.baseline' <<<"$sum") == true ]]; then
+      echo "Checkov (automated scanner): $inscope finding(s) in the changed directories, $(jq -r '.new' <<<"$sum") new in this pull request and $(jq -r '.existing' <<<"$sum") already on the base. Whole repository: $total. Triage is in the findings above; raw SARIF is in the workflow run."
+    else
+      echo "Checkov (automated scanner): $inscope finding(s) in the changed directories (no baseline scan, so new and existing are not told apart). Whole repository: $total. Triage is in the findings above; raw SARIF is in the workflow run."
+    fi
+    echo
+  fi
 fi
 [[ -n "$run_url" ]] && echo "[Workflow run]($run_url)"
