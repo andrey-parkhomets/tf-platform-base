@@ -26,7 +26,9 @@ GitHub only reads `*.yml` / `*.yaml` in this folder, so this file is documentati
 
 ## Rules for secrets
 
-- Reusable workflows get secrets one by one from the caller, never `secrets: inherit` (checked).
+- Reusable workflows read environment secrets in their own jobs; no `secrets: inherit`, no secrets passed by callers (checked).
+- The secrets are environment secrets of `tf-ai-agent` (default branch only). A job that reads one declares `environment: tf-ai-agent`; callers
+  never pass secrets down (checked). See `docs/secrets-environment.md`.
 - A job holds at most one of: the model key, the App token. See the header of `tf-ai-commands.yml`.
 - Every event a workflow uses must be allowed in the Actions event policy: `docs/actions-policy.md` (checked).
 
