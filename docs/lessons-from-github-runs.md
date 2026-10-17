@@ -28,7 +28,7 @@ Each row was found on a real run, fixed in its own pull request, and is now cove
 | `pe-<name>` appeared as `pe- name ` | the comment sanitizer replaced `<` and `>` with spaces | they become `‹` and `›` |
 | A test pinned `public_network_access_enabled == true` as the default, with no finding | the rule was only in the prompt | `check-test-quality.sh` rejects such a run; the analysis enforces the check's result |
 | "Writing tests now" followed by "No test work is recommended" | the closing line ignored automatic writing | it is printed only when nothing was selected |
+| Model text could render as a link, an image or a forged section of the bot's comment | the first sanitizer only replaced `<`, `>` and `@`; found by feeding an adversarial report through the renderers (an image beacon, a phishing link, autolinkable URLs, a forged "Committed to this branch" heading and table row, code-span breakouts) | `clean-report.sh` (whitelist, enumerations, validated identifiers) and `inert.jq` (one line, no links/images/HTML/mentions/references/fences/hidden characters); adversarial guard tests |
 
 The pattern in the table: the failures were in the plumbing around the model (expression semantics, artifact layout, permissions,
 event loops), not in the model's judgement, and the one judgement failure (the pinned insecure default) is now a deterministic check.
-

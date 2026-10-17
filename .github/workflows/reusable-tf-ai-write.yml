@@ -199,7 +199,7 @@ jobs:
             fi
             decision=$(jq -r '.decision // "updated"' "$report" 2>/dev/null || echo updated)
             case "$decision" in created|updated) ;; *) decision=updated;; esac
-            rationale=$(jq -r '.rationale // ""' "$report" 2>/dev/null | head -c 600 | tr -d '\r' | tr '<>' '  ')
+            rationale=$(jq -r '.rationale // ""' "$report" 2>/dev/null | head -c 600 | "$scripts/sanitize-text.sh" --join 600)
             msg=$(mktemp)
             {
               echo "test($dir): $decision tests via agent ($mode)"

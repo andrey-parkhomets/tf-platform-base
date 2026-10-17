@@ -284,6 +284,6 @@ jobs:
               say "Could not push the revert: the branch moved. Comment the command again."; exit 1
             fi
           else
-            say "Did not revert \`${SHA:0:12}\`: $(head -c 300 err.txt | tr -d '\r' | tr '<>@' '   ')"
+            say "Did not revert \`${SHA:0:12}\`: $(head -c 300 err.txt | .agent/trusted/.github/scripts/sanitize-text.sh --join 300 | tr '\n' ' ')"
             exit 1
           fi
