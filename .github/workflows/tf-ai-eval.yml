@@ -38,6 +38,9 @@ on:
       budget_usd:
         description: "Hard budget in USD PER MODEL (the real cost of each run is added up; the run stops when it is reached)"
         default: "5"
+      cli_version:
+        description: "Claude Code CLI version to install (its price table decides the USD figures it reports; empty = the pinned default)"
+        default: ""
 
 concurrency:
   group: tf-ai-eval
@@ -60,6 +63,7 @@ jobs:
     permissions:
       contents: read
     outputs:
+      cli: ${{ steps.in.outputs.cli }}
       models: ${{ steps.in.outputs.models }}
       ref_sha: ${{ steps.refsha.outputs.sha }}
     steps:
@@ -70,8 +74,11 @@ jobs:
           MODELS: ${{ inputs.models }}
           CASES: ${{ inputs.cases }}
           BUDGET: ${{ inputs.budget_usd }}
+          CLI: ${{ inputs.cli_version }}
         run: |
           set -euo pipefail
+          [[ -z "$CLI" || "$CLI" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::bad cli_version"; exit 1; }
+          echo "cli=${CLI:-$CLAUDE_CODE_VERSION}" >>"$GITHUB_OUTPUT"
           [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ && "$REF" != *..* ]] || { echo "::error::bad ref"; exit 1; }
           [[ "$CASES" == all || "$CASES" =~ ^[a-z0-9][a-z0-9,-]{0,200}$ ]] || { echo "::error::bad cases"; exit 1; }
           [[ "$BUDGET" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "::error::bad budget"; exit 1; }
@@ -156,9 +163,11 @@ jobs:
         with:
           node-version: "22"
       - name: Install the pinned Claude Code CLI and CodeGraph
+        env:
+          CLI: ${{ needs.plan.outputs.cli }}
         run: |
           set -euo pipefail
-          npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          npm install --global "@anthropic-ai/claude-code@${CLI}"
           claude --version
           npm install --prefix "$RUNNER_TEMP/codegraph" --ignore-scripts "@colbymchenry/codegraph@${CODEGRAPH_VERSION}"
           echo "$RUNNER_TEMP/codegraph/node_modules/.bin" >>"$GITHUB_PATH"
@@ -202,6 +211,10 @@ jobs:
           set -uo pipefail
           mkdir -p "$EVAL_TMP"
           main/evals/run.sh --out "out" --models "$MODEL" --stage "$STAGE" --repeats "$REPEATS" --cases "$CASES" --budget "$BUDGET"
+          rc=$?
+          # one index file per model, so that several models' artifacts can be merged into one folder
+          [ -f out/runs.jsonl ] && mv out/runs.jsonl "out/runs-$MODEL.jsonl"
+          exit $rc
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -246,10 +259,13 @@ jobs:
           key: tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-${{ hashFiles('main/**/.terraform.lock.hcl') }}
           restore-keys: |
             tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-
+      # merge-multiple: a single matching artifact is otherwise extracted without its own folder. Model folders and index files are
+      # named per model, so nothing collides.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: "eval-runs-*"
           path: runs
+          merge-multiple: true
         continue-on-error: true
       - name: Score every model's runs
         env:
@@ -261,10 +277,10 @@ jobs:
           set -uo pipefail
           mkdir -p "$HOME/.terraform.d/plugin-cache" "$EVAL_TMP" scores
           : >scores/scores.jsonl
-          for d in runs/eval-runs-*/; do
-            [ -s "$d/runs.jsonl" ] || continue
-            m=$(basename "$d")
-            main/evals/score.sh --runs "$d" --out "scores/$m.jsonl"
+          for idx in runs/runs-*.jsonl; do
+            [ -s "$idx" ] || continue
+            m=$(basename "$idx" .jsonl)
+            main/evals/score.sh --runs runs --index "$idx" --out "scores/$m.jsonl"
             cat "scores/$m.jsonl" >>scores/scores.jsonl
           done
           [ -s scores/scores.jsonl ] || { echo "::error::no run results to score"; exit 1; }
@@ -274,11 +290,12 @@ jobs:
           STAGE: ${{ inputs.stage }}
           REPEATS: ${{ inputs.repeats }}
           BUDGET: ${{ inputs.budget_usd }}
+          CLI: ${{ needs.plan.outputs.cli }}
         run: |
           {
             echo "### Evaluation of \`${REF_SHA:0:12}\`"
             echo
-            echo "stage: \`$STAGE\`, repeats: $REPEATS, budget per model: USD $BUDGET, Claude Code CLI \`$CLAUDE_CODE_VERSION\`. The writer is scored on its first attempt (no fix round)."
+            echo "stage: \`$STAGE\`, repeats: $REPEATS, budget per model: USD $BUDGET, Claude Code CLI \`$CLI\`. The writer is scored on its first attempt (no fix round)."
             echo
             main/evals/summarize.sh scores/scores.jsonl
           } | tee scores/summary.md >>"$GITHUB_STEP_SUMMARY"

@@ -18,6 +18,8 @@ summary=$(jq -s "${base_arg[@]}" '
         { model: .[0].model, stage: .[0].stage, n: length, passed: (map(select(.pass)) | length),
           rate: pct((map(select(.pass)) | length); length),
           mean_cost_usd: ((map(.cost_usd // 0) | add) / length), mean_turns: ((map(.turns // 0) | add) / length),
+          mean_tokens: ((map((.tokens.input // 0) + (.tokens.output // 0) + (.tokens.cache_read // 0) + (.tokens.cache_write // 0)) | add) / length),
+          mean_output_tokens: ((map(.tokens.output // 0) | add) / length),
           criteria: ( [ .[].criteria | to_entries[] | select(.value | type == "boolean") ] | group_by(.key)
                       | map({key: .[0].key, value: pct((map(select(.value)) | length); length)}) | from_entries ) } ],
       cases: [ $ran | group_by([.case, .model, .stage])[] |
@@ -33,8 +35,8 @@ if [[ $json -eq 1 ]]; then echo "$summary"; exit 0; fi
 jq -r '
   "## Evaluation summary\n",
   "\(.scored) run(s) scored, \(.skipped) skipped, measured cost USD \(.cost_usd * 1000 | round / 1000).\n",
-  "| model | stage | passed | rate | mean cost | mean turns |", "|---|---|---|---|---|---|",
-  (.groups[] | "| `\(.model)` | \(.stage) | \(.passed)/\(.n) | \(.rate // "n/a")% | USD \(.mean_cost_usd * 1000 | round / 1000) | \(.mean_turns | round) |"),
+  "| model | stage | passed | rate | mean cost (CLI estimate) | mean tokens (output) | mean turns |", "|---|---|---|---|---|---|---|",
+  (.groups[] | "| `\(.model)` | \(.stage) | \(.passed)/\(.n) | \(.rate // "n/a")% | USD \(.mean_cost_usd * 1000 | round / 1000) | \(.mean_tokens | round) (\(.mean_output_tokens | round)) | \(.mean_turns | round) |"),
   "\n### Criteria (share of runs that satisfied each)\n",
   "| model | stage | criterion | rate |", "|---|---|---|---|",
   (.groups[] | . as $g | .criteria | to_entries[] | "| `\($g.model)` | \($g.stage) | \(.key) | \(.value // "n/a")% |"),

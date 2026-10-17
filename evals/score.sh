@@ -2,7 +2,7 @@
 # Scores the runs that run.sh stored. Needs Terraform (it runs production's verification on what the writer produced) and must run in a
 # job WITHOUT the model key: the tests it runs were written by a model that read case data.
 #
-#   usage: evals/score.sh --runs DIR --out FILE.jsonl
+#   usage: evals/score.sh --runs DIR --out FILE.jsonl [--index FILE]     (the index defaults to DIR/runs.jsonl)
 #   env:   CASES_DIR (default: <AGENT_REF_DIR>/evals/cases), EVAL_TMP, AGENT_REF_DIR
 #   Every writer run is scored as the FIRST attempt: patch applied, tests formatted by `terraform fmt` (production's verify does the
 #   same, so a formatting slip is not a failure), then verify-module.sh (static quality check, fmt, init, validate, test, mutation check).
@@ -11,9 +11,10 @@ here=$(cd "$(dirname "$0")" && pwd)
 repo=${EVAL_REPO:-$(cd "$here/.." && pwd)}
 scripts=${EVAL_SCRIPTS:-$repo/.github/scripts}
 cases_dir=${CASES_DIR:-${AGENT_REF_DIR:-$repo}/evals/cases}
-runs=""; out=""
-while [[ $# -gt 0 ]]; do case "$1" in --runs) runs=$2; shift 2 ;; --out) out=$2; shift 2 ;; *) echo "score.sh: unknown argument $1" >&2; exit 2 ;; esac; done
-[[ -d "$runs" && -n "$out" && -s "$runs/runs.jsonl" ]] || { echo "score.sh: --runs must hold a runs.jsonl, and --out is required" >&2; exit 2; }
+runs=""; out=""; index=""
+while [[ $# -gt 0 ]]; do case "$1" in --runs) runs=$2; shift 2 ;; --out) out=$2; shift 2 ;; --index) index=$2; shift 2 ;; *) echo "score.sh: unknown argument $1" >&2; exit 2 ;; esac; done
+index=${index:-$runs/runs.jsonl}
+[[ -d "$runs" && -n "$out" && -s "$index" ]] || { echo "score.sh: --runs must be a directory with an index (runs.jsonl or --index), and --out is required" >&2; exit 2; }
 : >"$out"
 
 allowed_paths='^(modules|stacks)/[^/]+/tests/[A-Za-z0-9_.-]+\.(tftest\.hcl|tftest\.json|tfmock\.hcl)$'
@@ -46,8 +47,8 @@ while IFS= read -r line; do
     elif [[ ! -s "$rd/tests.patch" ]]; then
       crit=$("$here/lib/score-writer.sh" "$cdir" "$rd" <(echo '{"ok": false, "results": {}, "summary": "", "mutation": {}}') /nonexistent 2>/dev/null) || crit='{"pass": false, "patch_present": false}'
     fi
-    git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true
+    rm -rf -- "$wt"
   fi
-  jq -c --argjson crit "$crit" '{case, stage, model, repeat, cost_usd, turns, duration_ms, denials, model_used, finished} + {criteria: $crit, pass: $crit.pass}' <<<"$line" >>"$out"
-done <"$runs/runs.jsonl"
+  jq -c --argjson crit "$crit" '{case, stage, model, repeat, cost_usd, tokens, turns, duration_ms, denials, model_used, finished} + {criteria: $crit, pass: $crit.pass}' <<<"$line" >>"$out"
+done <"$index"
 echo "scored $(wc -l <"$out" | tr -d ' ') run(s) into $out"

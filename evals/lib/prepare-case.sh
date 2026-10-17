@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the working tree for one evaluation case: the pinned base commit of this repository, the case's patch committed on top (that
+# Builds the working tree for one evaluation case (a standalone clone): the pinned base commit of this repository, the case's patch committed on top (that
 # commit is the "head" of the pretend pull request), then the agent definition under test (overlay-agent.sh) as a local baseline commit,
 # exactly as the production workflows do. Prints one JSON line describing it.
 #
@@ -29,13 +29,19 @@ id=$(jget .id); base=$(jget .base); patch=$(jget .patch); dir=$(jget .dir)
 [[ "$dir" =~ ^(modules|stacks)/[A-Za-z0-9][A-Za-z0-9._-]*$ && "$dir" != *..* ]] || die "bad directory"
 git -C "$repo" cat-file -e "$base^{commit}" 2>/dev/null                       || die "base commit $base is not in the repository (fetch the full history)"
 
+[[ ! -e "$wt" ]] || die "working tree $wt already exists"
 created=0
 # a tree that could not be completed is not left behind
 # shellcheck disable=SC2154  # rc is assigned inside the trap
-trap 'rc=$?; if [[ $created -eq 1 && $rc -ne 0 ]]; then git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true; fi' EXIT
-git -C "$repo" worktree add --detach -q "$wt" "$base"
+trap 'rc=$?; if [[ $created -eq 1 && $rc -ne 0 ]]; then rm -rf -- "$wt"; fi' EXIT
+# A standalone clone, not a git worktree: in a worktree `.git` is a file, and the CLI (which records its placeholder files in
+# .git/info/exclude) could not write there. Production has an ordinary checkout; this gives the agent the same layout. --shared borrows
+# the objects of the source repository, so it is fast and small.
+git clone -q --shared --no-checkout "$repo" "$wt"
 created=1
-g() { git -C "$wt" -c user.name=eval -c user.email=eval@localhost "$@"; }
+git -C "$wt" checkout -q --detach "$base"
+# the harness never signs: its commits are throw-away, and a global commit.gpgsign=true must not reach them
+g() { git -C "$wt" -c user.name=eval -c user.email=eval@localhost -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
 g apply --index "$(cd "$case_dir" && pwd)/$patch" || die "the patch does not apply to $base"
 g commit -q -m "case $id"
 head=$(g rev-parse HEAD)

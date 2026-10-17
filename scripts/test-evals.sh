@@ -54,12 +54,12 @@ is "the case's change is committed on top of the pinned base" "$(jq -r '.base ==
 is "the agent definition under test is in the tree and committed (a clean baseline for the change guard)" "$(head -2 "$tmp/wt/p1/.claude/agents/tf-test-agent.md" | tail -1 | cut -c1-9) $(git -C "$tmp/wt/p1" status --porcelain | wc -l | tr -d ' ')" "name: tf- 0"
 is "the analysis inputs of production exist: the report folder and the quality check output" "$(test -d "$tmp/wt/p1/.agent/report" && echo dir) $(test -e "$tmp/wt/p1/.agent/quality.txt" && echo quality)" "dir quality"
 is "the JSON line names the directory and slug" "$(jq -r '.dir + " " + .slug' <<<"$info")" "modules/m1 modules-m1"
-git -C "$R" worktree remove --force "$tmp/wt/p1"
+rm -rf "$tmp/wt/p1"
 mkdir -p "$tmp/badcases/badbase"; jq '.id = "badbase" | .base = "0000000000000000000000000000000000000000"' "$tmp/cases/c1/case.json" >"$tmp/badcases/badbase/case.json"; cp "$tmp/change.patch" "$tmp/badcases/badbase/"
 expect_rc "a base commit that is not in the repository is refused" 2 "$lib/prepare-case.sh" "$tmp/badcases/badbase" "$tmp/wt/p2"
 mkdir -p "$tmp/badcases/badpatch"; jq '.id = "badpatch"' "$tmp/cases/c1/case.json" >"$tmp/badcases/badpatch/case.json"; echo 'garbage' >"$tmp/badcases/badpatch/change.patch"
 expect_rc "a patch that does not apply is refused" 2 "$lib/prepare-case.sh" "$tmp/badcases/badpatch" "$tmp/wt/p3"
-is "a failed preparation leaves no working tree behind" "$(git -C "$R" worktree list | wc -l | tr -d ' ')" 1
+is "a failed preparation leaves no working tree behind" "$(test -e "$tmp/wt/p3" && echo left || echo clean)" clean
 mkdir -p "$tmp/badcases/baddir"; jq '.id = "baddir" | .dir = "../etc"' "$tmp/cases/c1/case.json" >"$tmp/badcases/baddir/case.json"; cp "$tmp/change.patch" "$tmp/badcases/baddir/"
 expect_rc "a directory outside modules/ and stacks/ is refused" 2 "$lib/prepare-case.sh" "$tmp/badcases/baddir" "$tmp/wt/p4"
 
@@ -78,7 +78,9 @@ is "it ran inside the case's working tree with the agent definition under test" 
 # shellcheck disable=SC2016  # the backticks are literal characters of the prompt
 is "the prompt is the production prompt with this case's SHAs" "$(grep -c "Base SHA: $BASE" "$STUB_LOG") $(grep -c 'mode `analyze` for the directory `modules/m1`' "$STUB_LOG")" "1 1"
 is "the tool list is the production tool list (no Terraform, no wider)" "$(grep '^allowed=' "$STUB_LOG" | head -1 | grep -c 'Bash(terraform')" 0
-is "the working tree is removed afterwards" "$(git -C "$R" worktree list | wc -l | tr -d ' ')" 1
+is "the working tree is removed afterwards" "$(find "$tmp/wt" -maxdepth 1 -name 'eval-*' | wc -l | tr -d ' ')" 0
+is "the working tree is a standalone clone: .git is a directory, as in a production checkout" "$("$lib/prepare-case.sh" "$tmp/cases/c1" "$tmp/wt/p9" >/dev/null; test -d "$tmp/wt/p9/.git" && echo dir || echo file)" dir
+rm -rf "$tmp/wt/p9"
 unset STUB_REPORT; export STUB_TESTS="$tmp/tests.hcl"
 "$lib/run-stage.sh" writer "$tmp/cases/c1" claude-sonnet-5-5 2 "$tmp/o/w1"
 is "a writer run produces a patch that adds the test file, with the writer's turn limit" "$(grep -c '^+++ b/modules/m1/tests/main.tftest.hcl' "$tmp/o/w1/tests.patch") $(grep -c 'turns=60$' "$STUB_LOG")" "1 1"
@@ -112,6 +114,20 @@ CG_LOG="$tmp/cg.log" PATH="$tmp/cgbin:$PATH" EVAL_CODEGRAPH=1 "$lib/run-stage.sh
 is "with EVAL_CODEGRAPH=1 the index is built in the case's working tree before the agent runs" "$(grep -c 'eval-c1-analysis' "$tmp/cg.log" 2>/dev/null)" 1
 CG_LOG="$tmp/cg2.log" PATH="$tmp/cgbin:$PATH" "$lib/run-stage.sh" analysis "$tmp/cases/c1" claude-haiku-5-5 1 "$tmp/o/cg2" >/dev/null
 is "and not otherwise" "$(test -e "$tmp/cg2.log" && echo built || echo skipped)" skipped
+
+printf '[commit]\n\tgpgsign = true\n[gpg]\n\tprogram = /bin/false\n' >"$tmp/gitconfig-signing"
+GIT_CONFIG_GLOBAL="$tmp/gitconfig-signing" "$lib/prepare-case.sh" "$tmp/cases/c1" "$tmp/wt/sign" >/dev/null 2>&1; rc=$?
+is "a global commit.gpgsign=true (with a signer that always fails) does not reach the harness's throw-away commits" "$rc $(git -C "$tmp/wt/sign" log --oneline 2>/dev/null | head -3 | wc -l | tr -d ' ')" "0 3"
+rm -rf "$tmp/wt/sign"
+
+echo "== evals: findings of the second live run"
+export STUB_REPORT="$tmp/report.json" STUB_PLACEHOLDERS=1
+"$lib/run-stage.sh" analysis "$tmp/cases/c1" claude-haiku-5-5 1 "$tmp/o/ph" >/dev/null
+is "the CLI's scrub-mode placeholder files are removed before the path guard, as production does" "$(tail -1 "$tmp/o/ph/guard.txt") $(grep -c 'outside the allowed' "$tmp/o/ph/guard.txt")" "0 0"
+unset STUB_PLACEHOLDERS
+is "is_error: false stays false (jq's false // true is true)" "$(jq -c .is_error "$tmp/o/ph/run.json")" false
+is "run.json records the token counts, which do not depend on the CLI's price table" "$(jq -c '.tokens' "$tmp/o/ph/run.json")" '{"input":12,"output":5000,"cache_read":100000,"cache_write":30000}'
+unset STUB_REPORT
 
 echo "== evals: a relative --out and loud failures (found in the first live run)"
 export STUB_REPORT="$tmp/report.json" STUB_COST=0.3
@@ -179,7 +195,7 @@ is "every run of every stage is scored (c1 has two stages, c2 one)" "$(wc -l <"$
 is "the writer's tests are verified with production's verify-module.sh and pass" "$(jq -c 'select(.stage == "writer") | [.pass, .criteria.verify_ok, .criteria.passed]' "$tmp/e1/scores.jsonl")" "[true,true,3]"
 is "the analysis is scored too" "$(jq -c 'select(.stage == "analysis" and .case == "c1") | .pass' "$tmp/e1/scores.jsonl")" true
 is "the case c2 expects no_change_needed and the stub said tests_needed, so it fails" "$(jq -c 'select(.case == "c2") | .pass' "$tmp/e1/scores.jsonl")" false
-is "no working tree is left behind" "$(git -C "$R" worktree list | wc -l | tr -d ' ')" 1
+is "no scoring working tree is left behind" "$(find "$tmp/wt" -maxdepth 1 -name 'score-*' | wc -l | tr -d ' ')" 0
 unset STUB_REPORT STUB_TESTS STUB_COST
 
 echo "== evals: summarize.sh"

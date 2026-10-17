@@ -24,6 +24,11 @@ done
 slug=$(sed -n 's/.*(slug `\([^`]*\)`).*/\1/p' <<<"$prompt" | head -1)
 # shellcheck disable=SC2016
 dir=$(sed -n 's/.*for the directory `\([^`]*\)`.*/\1/p' <<<"$prompt" | head -1)
+# the real CLI, in scrub mode, drops empty placeholder files into the working tree and lists them in .git/info/exclude
+if [[ "${STUB_PLACEHOLDERS:-0}" == 1 ]]; then
+  : >.npmrc; : >package.json; : >.env.local
+  printf '# claude-code scrub-mode stubs\n/.npmrc\n/package.json\n/.env.local\n' >>.git/info/exclude
+fi
 mkdir -p .agent/report
 [[ -n "${STUB_REPORT:-}" ]] && cp "$STUB_REPORT" ".agent/report/$slug.json"
 # shellcheck disable=SC2016  # the backticks are literal characters of the prompt
@@ -31,4 +36,5 @@ mkdir -p .agent/report
 if [[ -n "${STUB_TESTS:-}" && "$prompt" == *"mode \`analyze\`"* ]]; then :; elif [[ -n "${STUB_TESTS:-}" ]]; then mkdir -p "$dir/tests"; cp "$STUB_TESTS" "$dir/tests/main.tftest.hcl"; fi
 if [[ -n "${STUB_STRAY:-}" ]]; then mkdir -p "$(dirname "$STUB_STRAY")"; echo x >"$STUB_STRAY"; fi
 jq -nc --arg m "$model" --argjson cost "${STUB_COST:-0.01}" \
-  '{type: "result", subtype: "success", is_error: false, num_turns: 7, duration_ms: 1234, total_cost_usd: $cost, permission_denials: [], modelUsage: {($m): {}}, result: "done"}'
+  '{type: "result", subtype: "success", is_error: false, num_turns: 7, duration_ms: 1234, total_cost_usd: $cost, permission_denials: [],
+    modelUsage: {($m): {inputTokens: 12, outputTokens: 5000, cacheReadInputTokens: 100000, cacheCreationInputTokens: 30000, costUSD: $cost}}, result: "done"}'
