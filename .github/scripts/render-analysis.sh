@@ -8,9 +8,9 @@ set -euo pipefail
 : "${MATRIX:?}"
 marker='<!-- tf-test-agent-analysis -->'
 
-clean() { # clean <max chars>
-  head -c "${1:-1500}" | sed -e 's/</‹/g' -e 's/>/›/g' -e 's/@/@​/g' | tr -d '\r'
-}
+here=$(dirname "$0")
+# Free text that is not part of a report: made inert line by line (inert.jq). Reports go through clean-report.sh instead.
+clean() { "$here/sanitize-text.sh" "${1:-300}"; }
 
 echo "$marker"
 echo "## Terraform test agent: analysis"
@@ -26,9 +26,12 @@ valid=0
 for i in $(seq 0 $((count - 1))); do
   dir=$(jq -r ".[$i].dir" <<<"$MATRIX"); slug=$(jq -r ".[$i].slug" <<<"$MATRIX")
   report=".agent/report/$slug.json"
+  # The report is model output: only the known keys, inert strings, validated identifiers (clean-report.sh).
+  raw_report=$report
+  if [[ -f "$report" ]]; then report=$(mktemp); "$here/clean-report.sh" "$raw_report" >"$report"; fi
   echo "### \`$dir\`"
   echo
-  if [[ -f "$report" ]] && jq -e '.decision' "$report" >/dev/null 2>&1; then
+  if [[ -f "$raw_report" ]] && jq -e '.decision' "$raw_report" >/dev/null 2>&1; then
     decision=$(jq -r '.decision' "$report")
     case "$decision" in
       tests_needed|tests_need_update|no_change_needed|skipped) ;;

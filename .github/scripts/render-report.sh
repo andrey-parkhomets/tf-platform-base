@@ -16,9 +16,9 @@ set -euo pipefail
 marker="<!-- tf-test-agent-run ${RUN_ID:-} -->"
 run_url=${RUN_URL:-}
 
-clean() { # clean <max chars>
-  head -c "${1:-1500}" | sed -e 's/</‹/g' -e 's/>/›/g' -e 's/@/@​/g' | tr -d '\r'
-}
+here=$(dirname "$0")
+# Free text from anywhere that is not a report: made inert line by line (inert.jq). Reports go through clean-report.sh instead.
+clean() { "$here/sanitize-text.sh" "${1:-300}"; }
 icon() { case "$1" in pass|success|true) echo "✅";; none|skipped) echo "➖";; *) echo "❌";; esac; }
 
 echo "$marker"
@@ -42,10 +42,14 @@ for i in $(seq 0 $((count - 1))); do
   slug=$(jq -r ".[$i].slug" <<<"$MATRIX")
   report=".agent/report/$slug.json"
   verify=".agent/verify/$slug.json"
+  # The report is model output: only the known keys, inert strings, validated identifiers (clean-report.sh). `raw_report` is read
+  # only for facts that are compared, never printed.
+  raw_report=$report
+  if [[ -f "$report" ]]; then report=$(mktemp); "$here/clean-report.sh" "$raw_report" >"$report"; fi
   echo "### \`$dir\`"
   echo
 
-  if [[ -f "$report" ]] && jq -e '.decision' "$report" >/dev/null 2>&1; then
+  if [[ -f "$raw_report" ]] && jq -e '.decision' "$raw_report" >/dev/null 2>&1; then
     decision=$(jq -r '.decision // "unknown"' "$report" | clean 40)
     echo "**Decision:** \`$decision\` — $(jq -r '.rationale // ""' "$report" | clean 600)"
     echo
@@ -58,7 +62,7 @@ for i in $(seq 0 $((count - 1))); do
     echo
   else
     agent_result=$(jq -r '.agent // "unknown"' <<<"${JOB_RESULTS:-{\}}")
-    skipped=$(jq -r '.skipped // empty' "$report" 2>/dev/null || true)
+    skipped=$(jq -r '.skipped // empty' "$raw_report" 2>/dev/null || true)
     if [[ $skipped == agent_definition_not_on_base ]]; then
       echo "**Decision:** none. The agent was skipped: the agent definition (\`.claude/agents/tf-test-agent.md\`) is not on the base branch yet, and the action only loads agent definitions from the base branch."
     elif [[ $agent_result == failure ]]; then
@@ -86,14 +90,14 @@ for i in $(seq 0 $((count - 1))); do
     jq -r '.results | to_entries[] | "\(.key)|\(.value)"' "$verify" | while IFS='|' read -r k v; do
       echo "| $k | $(icon "$v") $v |"
     done
-    s=$(jq -r '.summary' "$verify")
+    s=$(jq -r '.summary' "$verify" | clean 120 | tr -d '`')
     [[ -n "$s" ]] && echo && echo "\`$s\`"
     if [[ $(jq '(.mutation.total // 0)' "$verify") -gt 0 ]]; then
       echo
       echo "Mutation check (heuristic, simple breakages of the module code): $(jq -r '.mutation.total - .mutation.survived' "$verify") of $(jq -r '.mutation.total' "$verify") caught."
       if [[ $(jq '.mutation.survived' "$verify") -gt 0 ]]; then
         echo "Not caught by the tests:"
-        jq -r '.mutation.survivors[:8][] | "- " + .' "$verify"
+        jq -r '.mutation.survivors[:8][] | "- " + .' "$verify" | clean 200
       fi
     fi
   else

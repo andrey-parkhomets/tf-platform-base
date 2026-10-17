@@ -17,3 +17,13 @@ I went through `anthropics/claude-code-action` `docs/security.md` point by point
 | Commit signing, PR creation | The model never commits and never opens pull requests. The `commit` job commits as the GitHub App (commits made through a git push with an App token are not signed). Branch protection that requires signed commits would need the App to sign through the API instead | Listed under production changes |
 | `CLAUDE_CODE_SCRIPT_CAPS` for write-capable helper scripts | Not used: the only helper script the agent may call is read-only | Worth adding if a write-capable helper is ever added |
 | Push access | A GitHub App installation token (`actions/create-github-app-token`, `contents` and `pull-requests` write only, valid one hour) is created only in the `commit` and `remove` jobs. Those jobs run no model and no Terraform; they apply a patch that `verify` accepted after re-checking its paths (`commit-patch.sh`), or revert a bot-authored, test-only commit (`revert-commit.sh`). Pushes are never forced. A push by the App starts the normal `pull_request` checks, which a `GITHUB_TOKEN` push would not | The App's private key is a long-lived secret. The App can push to any branch of the repository it is installed on, so install it on this repository only and keep branch protection on `main` |
+
+## Text the model writes into pull request comments
+
+The report is model output and may have been steered by the diff or by a review comment. It is not posted as it is: `clean-report.sh`
+keeps only known keys, validates enumerations and identifiers, and makes every string one inert line (`inert.jq`): no link or image
+syntax, no autolinked URL, no HTML or comment markers (so the bot's own marker cannot be forged), no mention or `#123` reference, no
+fence, no zero-width or bidirectional character, no control character. Commit-message text, thread replies and error messages go
+through the same filter. `scripts/test-guards.sh` runs hostile reports through both renderers and removes each defence in turn to
+check that a test fails. What it cannot do: stop misleading plain text.
+
