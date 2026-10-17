@@ -45,7 +45,6 @@ Write `.agent/report/<slug>.json` where `<slug>` is the directory with `/` repla
   "rationale": "why, in one or two sentences",
   "changed_behaviours": ["short statements"],
   "skills_used": ["tf-change-analysis", "terraform-test", "tf-test-writing", "tf-test-verify", "tf-review-findings"],
-  "commands_run": ["terraform test: 6 passed, 0 failed"],
   "tests": [{"file": "modules/example/tests/main.tftest.hcl", "runs": ["run_name"]}],
   "threads": [{"id": "<id from .agent/threads.json>", "outcome": "addressed | declined", "reply": "one or two sentences"}],
   "not_covered": ["what these tests cannot show"],
@@ -53,7 +52,7 @@ Write `.agent/report/<slug>.json` where `<slug>` is the directory with `/` repla
 }
 ```
 
-In mode `analyze` the report has no `tests`, `threads` or `commands_run`; `decision` is one of
+In mode `analyze` the report has no `tests` or `threads`; `decision` is one of
 `tests_needed | tests_need_update | no_change_needed | skipped`, and it adds `affected_callers` (list of directories) and
 `test_plan` (list of one-line strings). `skills_used` there is `tf-change-analysis` and `tf-review-findings`. The pipeline drops
 a report whose `dir` or `decision` does not match.

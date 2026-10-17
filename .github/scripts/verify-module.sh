@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the deterministic checks for one directory, outside the LLM:
-#   fmt -check, init (lock file must already satisfy providers), validate, test.
+#   the static test-quality check, fmt -check, init (lock file must already satisfy providers), validate, test, mutation check.
 # Writes .agent/verify/<slug>.json and .agent/verify/<slug>.log. Exit code is 0 only if all pass.
 # Needs no credentials. Must run in a job that has no secrets.
 set -uo pipefail
@@ -25,6 +25,14 @@ run() { # run <name> <cmd...>; records pass/fail in $results
 
 results='{}'
 ok=0
+# The static test-quality check first (no Terraform): a test that cannot fail, or that pins an insecure default, is rejected here
+# and its message is in the log that the agent reads in the fix round.
+{ echo "### quality: check-test-quality.sh $dir"; } >>"$log"
+if "$(dirname "$0")/check-test-quality.sh" "$dir" >>"$log" 2>&1; then
+  results=$(jq -c '. + {quality: "pass"}' <<<"$results")
+else
+  results=$(jq -c '. + {quality: "fail"}' <<<"$results"); ok=1
+fi
 run fmt terraform fmt -check -recursive -diff || ok=1
 if run init terraform init -backend=false -input=false -lockfile=readonly -no-color; then
   run validate terraform validate -no-color || ok=1
@@ -51,6 +59,7 @@ fi
 # "Success! 5 passed, 0 failed." comes from `terraform test`
 summary=$(grep -E '^(Success|Fail)[!a-z ]*[0-9]+ passed, [0-9]+ failed' "$log" | tail -1 || true)
 jq -n --arg dir "$dir" --argjson results "$results" --arg summary "$summary" --argjson mutation "$mutation" --argjson ok "$([ $ok -eq 0 ] && echo true || echo false)" \
-  '{dir: $dir, ok: $ok, results: $results, summary: $summary, mutation: $mutation}' >"$out/$slug.json"
+  --argjson round "${ROUND:-1}" \
+  '{dir: $dir, round: $round, ok: $ok, results: $results, summary: $summary, mutation: $mutation}' >"$out/$slug.json"
 
 exit "$ok"
