@@ -79,20 +79,23 @@ rules, thread handling with a stubbed `gh`, quality checks).
 
 ## Example run
 
-**Not yet available for the comment-driven version.** `agent-commands.yml` can only run once it is on the default branch and the
-App exists, so the example pull request for this flow is still to be done. What exists:
+**Pull request 7:** https://github.com/andrey-parkhomets/tf-platform-base/pull/7 (kept open on purpose, so the conversation and
+the commits stay visible). The change: `modules/log-analytics-workspace/variables.tf` gets a `validation` on `retention_in_days`
+(30 to 730). The module had no tests. Everything below happened on GitHub with the real `claude-code-action`, model
+`claude-haiku-5-5`, the GitHub App `andrey-tf-test-agent`.
 
-- Pull request 2 (https://github.com/andrey-parkhomets/tf-platform-base/pull/2) is a real run of the **earlier, automatic
-  version** with the same agent file and skills: `private-endpoint` gets a `validation` on `subresource_name`; decision
-  `created`, 9 `run` blocks, 9 passed in the separate verify job, mutation check 3 of 4 (the miss is shown), findings for
-  reviewers (the allow-list accepts any sub-resource for any target; endpoints created without a private DNS zone; `name` not
-  validated). Skills used: `tf-change-analysis`, `terraform-test`, `tf-test-writing`, `tf-test-verify`, `tf-review-findings`.
-- Two earlier runs of that PR, and what they changed, are in `docs/lessons-from-github-runs.md`.
-- The agent was also run end to end locally against a `function-app` change (12 tests, an injection attempt in the diff ignored
-  and reported as a high finding); see `docs/model-comparison.md`.
+| Step | What happened |
+|---|---|
+| PR opened | `terraform-checks.yml`: detect, lint, Checkov and verify passed. One hint comment: "`modules/log-analytics-workspace` has no tests", with the list of commands. No model was involved |
+| Comment `agent coverage` | Decision `created` (skills `tf-change-analysis`, `terraform-test`, `tf-test-writing`, `tf-test-verify`, `tf-review-findings`). Seven `run` blocks: SKU and inputs, default retention, retention reaches the resource, the upper bound accepted, values below 30 and above 730 rejected with `expect_failures`, tags. The verify job (no secrets) re-ran them: fmt, init, validate pass, **7 passed, 0 failed**, mutation check 2 of 2 caught. The `commit` job pushed commit `d0d0c27` as `andrey-tf-test-agent[bot]`; the PR checks then ran on it like on any commit. About 3 minutes in total |
+| Findings in the report | medium: the workspace keeps shared-key authentication enabled, unlike `storage-account`; low: `name` is not validated; info: the 30 to 730 range was taken from the code, not checked against Azure documentation. No infrastructure file was touched |
+| Inline review comments on the test file, then `agent check comments` | Two threads. (1) "add a run that sets the lower bound 30 explicitly": the agent added `retention_accepts_the_lower_bound`, verification passed, commit `65e9930`, the thread was answered ("Addressed in 65e9930 ...") and **resolved**. (2) "make this an apply-mode test against a real workspace": **declined** with a reason (offline plan-mode tests only), reply posted, thread left **open** for a person |
+| Comment `agent remove 65e9930` | A revert commit `a57b5e7` by the App, no model involved |
+| Comment `agent remove ea32d26` (a human commit) | Refused with "was not made by the agent; revert it yourself", nothing pushed |
 
-Replace this section with the link to the first comment-driven PR (`agent coverage`, an inline review comment, `agent check
-comments`, `agent remove`) after the App is installed.
+Other runs behind the design: the earlier, automatic version of the workflow on pull request 2 (`private-endpoint`, 9 tests, see
+`docs/lessons-from-github-runs.md`) and local runs against a `function-app` change including an injection attempt in the diff
+(ignored and reported as a high finding, see `docs/model-comparison.md`).
 
 ## What the generated tests can and cannot show
 
@@ -116,10 +119,9 @@ code, so the agent is told not to bless insecure behaviour (for example `ftps_st
 
 ## Limitations
 
-- **The comment-driven workflow has not run on GitHub yet.** Its scripts are tested locally and the YAML passes `actionlint`, but
-  the `claude-code-action` behaviour on an `issue_comment` event (it was written for `pull_request`), the App token flow and the
-  GraphQL thread calls are first proven by the first real run. The `act` simulation (`scripts/simulate-pr.sh`) still targets the
-  earlier workflow and is out of date for the agent part.
+- `scripts/simulate-pr.sh` (the `act` simulation) still targets the earlier, automatic workflow and is out of date for the agent
+  part. The comment-driven flow is covered by `scripts/test-guards.sh` for the scripts and by the real run on pull request 7.
+  Not yet exercised on GitHub: a branch that moves during a run, `agent coverage` on a stack, a fork PR (refused by design).
 - Fork pull requests get no agent run, by design.
 - The agent job runs `terraform test` on pull request code next to the model key. The key is removed from the environment of
   those processes (subprocess scrub plus bubblewrap) and `GITHUB_TOKEN` is read-only, but `data "external"` can run a script at
