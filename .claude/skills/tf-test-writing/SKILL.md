@@ -56,3 +56,10 @@ This also applies to **defaults**. Do not write a test that asserts an unsafe de
 `public_network_access_enabled == true` when the variable is not set); that pins the risk in place and makes a later fix
 look like a regression. Test that the input is honoured instead (set it to `false`, assert `false`), and report the
 unsafe default as a finding.
+
+## Cover what a mutation would change
+
+A later check breaks the module code in small ways (a string literal, a name prefix, a dropped tag) and
+expects at least one test to fail. So besides behaviour, assert the resource `name` built from the
+module's inputs and the `tags` the module sets or merges. If a value is only a mock-generated one, say so
+in the report instead of asserting it.
