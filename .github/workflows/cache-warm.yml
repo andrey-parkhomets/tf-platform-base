@@ -30,11 +30,11 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
 
@@ -46,7 +46,7 @@ jobs:
             [ -d "$d" ] && terraform -chdir="$d" init -backend=false -input=false -lockfile=readonly >/dev/null
           done
           du -sh "$TF_PLUGIN_CACHE_DIR"
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.TF_PLUGIN_CACHE_DIR }}
           key: tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-${{ hashFiles('**/.terraform.lock.hcl') }}
@@ -55,7 +55,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/codegraph" --ignore-scripts "@colbymchenry/codegraph@${CODEGRAPH_VERSION}"
           "$RUNNER_TEMP/codegraph/node_modules/.bin/codegraph" init .
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .codegraph
           key: codegraph-${{ runner.os }}-${{ env.CODEGRAPH_VERSION }}-${{ github.sha }}
