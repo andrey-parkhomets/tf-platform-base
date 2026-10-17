@@ -17,7 +17,12 @@ You tell reviewers; people decide. Never edit infrastructure code, even for a on
      decision a reviewer must make depends on it: then one `info` finding, saying it is existing.
    - `unknown`: there was no baseline scan; treat like `new` but say that you cannot tell.
    `runs[0].properties.checkovScope` has the counts. Drop duplicates. Do not re-derive what Checkov already reports.
-2. Your own review of the target, focused on what a scanner cannot see:
+   `new` and `existing` describe **Checkov results only**. They say nothing about your own review below.
+2. Your own review of the target, focused on what a scanner cannot see. **Severity follows the risk, not whether this diff touched
+   the line.** An unsafe setting that is already in the module (for example FTP allowed for everyone, public network access on by
+   default, shared keys enabled) is still something a reviewer who is changing that module must know: report it at the severity its
+   risk deserves and say in the detail that it predates the change. Do not lower it to `info` because it is unchanged; your own
+   observations are not duplicates of anything the pipeline already shows.
    - code that runs at plan time (`data "external"`, `local-exec`), what it executes and with what trust
    - defaults that are unsafe (public access, permissive protocols) or that differ from sibling modules
    - validations that are missing for inputs that end up in resource names
