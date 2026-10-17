@@ -37,6 +37,7 @@ with this table instead of the one in step 5 (the verbs say what *should* happen
 | Existing tests are now wrong or too weak because of the change | `tests_need_update` |
 | Only comments, formatting, README or lock files changed, or existing `run` blocks already cover it (name them) | `no_change_needed` |
 | A stack with no logic of its own, or behaviour that cannot be tested offline | `skipped`, say what a human should verify |
+| `.agent/quality.txt` lists errors (the existing tests fail the static quality check) | `tests_need_update`, whatever else holds: name the error. The pipeline enforces this too |
 
 Also fill `affected_callers` (stacks or modules that call the directory, from CodeGraph) and `test_plan`. For `tests_needed` and
 `tests_need_update` it is the plan: one line per `run` block you would write. For `no_change_needed` it is the existing `run`
