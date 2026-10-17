@@ -1,8 +1,8 @@
-name: Terraform checks
+name: tf-check
 
 # Deterministic checks for every pull request that changes Terraform: lint, Checkov, and the existing tests of the changed
 # directories (fmt, init, validate, test, mutation check). No model and no secrets here. The agent that writes tests
-# is started by a comment, see agent-commands.yml.
+# is started by a comment, see tf-ai-commands.yml, and tf-ai-analysis.yml for the automatic analysis.
 
 # `pull_request`, not `pull_request_target`: the workflow that runs is the one in the PR's
 # merge commit, from the same repository, with a read-only token unless a job asks for more.
@@ -12,12 +12,13 @@ on:
     paths:
       - "modules/**"
       - "stacks/**"
-      - ".github/workflows/terraform-checks.yml"
+      - ".github/workflows/tf-check.yml"
+      - ".github/workflows/reusable-checkov.yml"
       - ".github/scripts/**"
       - ".claude/**"
 
 concurrency:
-  group: terraform-checks-${{ github.event.pull_request.number }}
+  group: tf-check-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions: {}
@@ -104,7 +105,7 @@ jobs:
           output-file: README.md
           fail-on-diff: true
           git-push: false
-      # Hook environments (cloned hook repositories, virtualenvs) come from the cache that `Warm caches` writes on main.
+      # Hook environments (cloned hook repositories, virtualenvs) come from the cache that `tf-cache-warm` writes on main.
       # A pull request only restores it; on a miss pre-commit installs them itself.
       - name: Restore pre-commit hook environments
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -120,47 +121,11 @@ jobs:
 
   checkov:
     name: Checkov
-    runs-on: ubuntu-24.04
     needs: detect
     if: needs.detect.outputs.any == 'true'
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-      - name: Scan
-        uses: bridgecrewio/checkov-action@6f26dc90000b74feb589a906cdfae540f5119895 # v12.3134.0
-        with:
-          directory: .
-          config_file: .checkov.yaml
-          soft_fail: true
-          output_format: cli,sarif
-          output_file_path: console,results.sarif
-          skip_results_upload: true
-          download_external_modules: false
-          # Private Terraform modules (this repo only uses local ../../modules sources, so this stays off).
-          # To scan stacks that call modules from other private repositories, turn downloads on and give
-          # the action a token that can read those repositories:
-          #
-          #   download_external_modules: true
-          #   github_pat: ${{ secrets.TF_MODULES_READ_PAT }}   # fine-grained, contents:read on the module repos only
-          # and, if the sources are `git::https://github.com/...` URLs, add to this step:
-          #   env:
-          #     GITHUB_OVERRIDE_URL: true   # makes the action rewrite github.com URLs to carry the token
-          #
-          # Rules if you enable it: (1) keep `if: needs.detect.outputs.same_repo == 'true'` on this job, a fork
-          # must never run next to the token; (2) prefer a short-lived GitHub App token
-          # (actions/create-github-app-token) over a long-lived PAT; (3) `terraform init` in lint/verify/agent
-          # fetches the same modules, so those jobs need the same git URL rewrite, and the agent job must NOT
-          # get the token (`git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf
-          # "https://github.com/"` in the lint/verify jobs only); (4) offline `terraform test` cannot
-          # fetch modules, so vendor or pin them or mock the module call in the test.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: checkov
-          path: results.sarif
-          if-no-files-found: warn
+    uses: ./.github/workflows/reusable-checkov.yml
 
   verify:
     name: Verify (${{ matrix.dir }})

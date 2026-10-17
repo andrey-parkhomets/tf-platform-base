@@ -10,14 +10,14 @@ tests are **committed to the pull request branch**. People review that commit li
 the agent to act on them or to revert the commit.
 
 ```text
-pull_request_target ──► agent-analysis.yml:  detect (no secrets) ─► analyze (model key, read-only, no Terraform) ─► select (script) ─┬► post (comment)
-                         "modules/x: tests_needed. Writing tests now. Findings: ..."                                   └► write = agent-write.yml
+pull_request_target ──► tf-ai-analysis.yml:  detect (no secrets) ─► analyze (model key, read-only, no Terraform) ─► select (script) ─┬► post (comment)
+                         "modules/x: tests_needed. Writing tests now. Findings: ..."                                   └► write = reusable-tf-ai-write.yml
                                                                                                                           (agent ─► verify, no secrets ─► commit, App token)
 
-pull_request ──► terraform-checks.yml:  detect ─► lint, checkov ─► verify (existing tests) ─► one hint comment
+pull_request ──► tf-check.yml:  detect ─► lint, checkov ─► verify (existing tests) ─► one hint comment
                                          "changed: modules/x (no tests). Comment `agent coverage`"
 
-comment ──► agent-commands.yml
+comment ──► tf-ai-commands.yml
   `agent coverage [dir]`    gate ─► checkov ─► agent (model key) ─► verify (no secrets) ─► commit (App token) ─► report
   `agent check comments`    gate collects unresolved review threads on test files ─► same chain, then replies + resolves threads
   `agent remove <sha>`      gate ─► remove (App token): git revert of an agent commit, new commit, no model
@@ -27,7 +27,7 @@ comment ──► agent-commands.yml
 
 | What | Where |
 |---|---|
-| Workflows | `.github/workflows/terraform-checks.yml` (every PR, no secrets, no model), `agent-analysis.yml` (every same-repo PR, model, read-only), `agent-commands.yml` (comment commands: gate, revert, and a call to) `agent-write.yml` (reusable: agent, verify, commit, report), `cache-warm.yml` (caches, `main` only) |
+| Workflows | `.github/workflows/tf-check.yml` (every PR, no secrets, no model), `tf-ai-analysis.yml` (every same-repo PR, model, read-only), `tf-ai-commands.yml` (comment commands: gate, revert, and a call to) `reusable-tf-ai-write.yml` (reusable: agent, verify, commit, report) and `reusable-checkov.yml` (one Checkov scan, used by all three pipelines; naming rules in `.github/workflows/README.md`), `tf-cache-warm.yml` (caches, `main` only) |
 | **Custom agent** | `.claude/agents/tf-test-agent.md`: role, hard rules, three modes (`analyze`, `coverage`, `revise`), tool list |
 | **Skills** | `.claude/skills/`: `tf-change-analysis`, `tf-test-writing`, `tf-test-verify`, `tf-review-findings`, and the vendored HashiCorp `terraform-test` (pinned, see `PROVENANCE.md`) |
 | Deterministic scripts (tested by `scripts/test-guards.sh`) | `.github/scripts/`: `parse-command.sh`, `detect-modules.sh`, `guard-paths.sh`, `check-test-quality.sh`, `verify-module.sh`, `mutation-check.sh`, `commit-patch.sh`, `revert-commit.sh`, `collect-threads.sh`, `resolve-threads.sh`, `render-hint.sh`, `render-report.sh`, `render-analysis.sh` |
@@ -44,7 +44,7 @@ write the report JSON, including the outcome per review thread).
 
 | Decision | Why | What I gave up |
 |---|---|---|
-| **The agent decides on every PR and writes when it decides tests are needed; people can always ask or undo** | The task asks for an agent that creates or updates tests when it judges that appropriate. The decision is a read-only run per changed directory; writing reuses the audited comment-command pipeline (`agent-write.yml`, one implementation). `select-auto-write.sh` (a tested script, not the model) turns decisions into directories, applies the opt-outs and the cap | The branch moves under the author: they must pull before the next push. Opt out with the `no-auto-pr-agent` label or `AGENT_AUTO_WRITE=0`. A wrong `tests_needed` costs one more model run and one commit that `agent remove <sha>` undoes |
+| **The agent decides on every PR and writes when it decides tests are needed; people can always ask or undo** | The task asks for an agent that creates or updates tests when it judges that appropriate. The decision is a read-only run per changed directory; writing reuses the audited comment-command pipeline (`reusable-tf-ai-write.yml`, one implementation). `select-auto-write.sh` (a tested script, not the model) turns decisions into directories, applies the opt-outs and the cap | The branch moves under the author: they must pull before the next push. Opt out with the `no-auto-pr-agent` label or `AGENT_AUTO_WRITE=0`. A wrong `tests_needed` costs one more model run and one commit that `agent remove <sha>` undoes |
 | **Loop breaker and cap** | Pushes by bots (the agent's own commits) never start the workflow; a push by a person does, so each human push can trigger one automatic write (that is the re-arm). At most `AGENT_AUTO_WRITE_MAX` (3) agent commits per PR, counted from the PR's own commits | A fourth round needs a person to comment `agent coverage` |
 | **The automatic run is `pull_request_target`, read-only and without Terraform** | The model key must not be exposed to a workflow the PR can edit, so the workflow, agent and skills come from the default branch. The PR is checked out as data and never executed: no Terraform is installed, tools are `Read/Grep/Glob/Skill`, `git diff/log/status`, `codegraph explore`, and a report file. A guard fails the job if any file changed; the comment is posted by a separate job that has the write token but no model | The analysis cannot run tests or see test results, so its test plan is a proposal, not a claim. Same-repo PRs only, not drafts, not pushes by bots (the agent's own test commit would otherwise re-run it; the comment is then marked possibly out of date), at most 5 directories per run (`ANALYSIS_MAX_DIRS`). Kill switch: `AGENT_AUTO_ANALYSIS=0` |
 | **Verified tests are committed to the branch** | Reviewable in the normal diff, with inline comments, and the PR's own checks run on them | Needs a GitHub App (a `GITHUB_TOKEN` push would not start the checks). One more long-lived secret |
@@ -56,7 +56,7 @@ write the report JSON, including the outcome per review thread).
 | **Offline tests: `mock_provider` + `command = plan`** | No credentials, no cost, deterministic | Tests show configuration and wiring, not provider behaviour (see below) |
 | **Mutation check, as a gap detector** | It breaks the module in simple ways in a temporary copy (flip a boolean, change a string, drop `tags`) and lists the breakages no test noticed. It found a real gap (unasserted DNS zone group name). A surviving mutant means "no test checks this", nothing more | Four crude operators, first match only; some survivors are harmless. Treat the list as hints, not a score |
 | **Checkov as a pre-filter** | Cheap and certain for known misconfigurations. The agent triages it in context and looks for what scanners miss. `soft_fail`, informational | Scans the whole repo, so old findings appear in the count |
-| **CodeGraph index, cached from `main`** | The agent finds callers and dependants (it supports Terraform: resources, variables, modules, `var.`/`module.` references). Pinned version, `--ignore-scripts`; PRs only restore the cache and sync | A third-party tool in the agent job. Cache hit rate depends on eviction (`cache-warm.yml` should be scheduled) |
+| **CodeGraph index, cached from `main`** | The agent finds callers and dependants (it supports Terraform: resources, variables, modules, `var.`/`module.` references). Pinned version, `--ignore-scripts`; PRs only restore the cache and sync | A third-party tool in the agent job. Cache hit rate depends on eviction (`tf-cache-warm.yml` should be scheduled) |
 | **Changed directories from `git diff`, no third-party action** | The matrix is derived by `detect-modules.sh` from `BASE...HEAD`, and every name is validated (`^(modules\|stacks)/[A-Za-z0-9][A-Za-z0-9._-]*$`, no `..`) before use | Nothing; this replaced `tj-actions/changed-files` (compromised in 2025) |
 | **All actions pinned to commit SHAs, `ubuntu-24.04`** | Supply chain and a stable runner image | Updates are deliberate (Dependabot is on the production list) |
 | **Default model `claude-haiku-5-5`** | Keeps the cost of CI development low (about USD 0.02 per run); `CLAUDE_MODEL` changes it | Fewer edge-case tests than a larger model; see `docs/model-comparison.md` |
@@ -73,7 +73,7 @@ One-time setup:
 3. Optional repository variables: `CLAUDE_MODEL`, `AGENT_MAX_TURNS` (default 60), `ANALYSIS_MAX_TURNS` (30), `ANALYSIS_MAX_DIRS` (5), `AGENT_AUTO_ANALYSIS` (`0` turns the automatic analysis off), `AGENT_AUTO_WRITE` (`0` turns automatic writing off), `AGENT_AUTO_WRITE_MAX` (3), `AGENT_SUBPROCESS_SCRUB` (set `0` only to
    run without the subprocess scrub).
 4. Merge to the default branch. `issue_comment` and `pull_request_target` workflows and `.claude/` are read from there. Optionally run
-   `Warm caches` once.
+   `tf-cache-warm` once.
 5. **Before 2 November 2026:** create an Actions event policy that allows the events the workflows use, `pull_request_target`
    included. From that date GitHub blocks `pull_request_target` in public repositories without one, which would stop the automatic
    analysis. Step by step, with the exact event list and how to check it in Evaluate mode: `docs/actions-policy.md`.
@@ -101,7 +101,7 @@ https://github.com/andrey-parkhomets/tf-platform-base/pull/22. The change: `modu
 
 | Step | What happened |
 |---|---|
-| PR opened | `agent-analysis.yml`: decision `tests_needed` (module has no tests, new validation, callers `blob`, `dfs`, `vault` still valid), with a test plan and findings. `select-auto-write.sh` picked the directory; the reusable `agent-write.yml` ran: agent, verify (no secrets), commit. Commit `cddb6a3` was pushed. The run was then cancelled by the bot's own push (the concurrency group), so its report comment was never posted. That bug is why concurrency is keyed by who pushed |
+| PR opened | `tf-ai-analysis.yml`: decision `tests_needed` (module has no tests, new validation, callers `blob`, `dfs`, `vault` still valid), with a test plan and findings. `select-auto-write.sh` picked the directory; the reusable `reusable-tf-ai-write.yml` ran: agent, verify (no secrets), commit. Commit `cddb6a3` was pushed. The run was then cancelled by the bot's own push (the concurrency group), so its report comment was never posted. That bug is why concurrency is keyed by who pushed |
 | `agent remove cddb6a3`, then a push by a person | Revert commit `9a2728c`. The human push re-armed the workflow: analysis `tests_needed`, "Writing tests now", agent wrote 9 plan-mode runs (names, wiring, optional DNS zone group, the new validation accepted and rejected, tags). Verify job: fmt, init, validate pass, **9 passed, 0 failed**, mutation check 3 of 4 caught (a changed string literal survived). Commit `e09b73a`, report comment posted. The bot push did not re-run the analysis; the existing analysis comment got a "possibly out of date" note |
 | Another push by a person | Analysis `no_change_needed`: it lists the nine existing runs that cover the change, so no second write. Read the diff with the exact command from the prompt. Finding (medium): the new regex rejects underscores, but Azure group ids such as `blob_secondary` contain one. The agent could not verify it offline; it is a question for the author, and probably a real bug in this example change |
 
@@ -123,7 +123,7 @@ still how people ask for more.
 
 | Step | What happened |
 |---|---|
-| PR opened | `terraform-checks.yml`: detect, lint, Checkov and verify passed. One hint comment: "`modules/log-analytics-workspace` has no tests", with the list of commands. No model was involved |
+| PR opened | `tf-check.yml`: detect, lint, Checkov and verify passed. One hint comment: "`modules/log-analytics-workspace` has no tests", with the list of commands. No model was involved |
 | Comment `agent coverage` | Decision `created` (skills `tf-change-analysis`, `terraform-test`, `tf-test-writing`, `tf-test-verify`, `tf-review-findings`). Seven `run` blocks: SKU and inputs, default retention, retention reaches the resource, the upper bound accepted, values below 30 and above 730 rejected with `expect_failures`, tags. The verify job (no secrets) re-ran them: fmt, init, validate pass, **7 passed, 0 failed**, mutation check 2 of 2 caught. The `commit` job pushed commit `d0d0c27` as `andrey-tf-test-agent[bot]`; the PR checks then ran on it like on any commit. About 3 minutes in total |
 | Findings in the report | medium: the workspace keeps shared-key authentication enabled, unlike `storage-account`; low: `name` is not validated; info: the 30 to 730 range was taken from the code, not checked against Azure documentation. No infrastructure file was touched |
 | Inline review comments on the test file, then `agent check comments` | Two threads. (1) "add a run that sets the lower bound 30 explicitly": the agent added `retention_accepts_the_lower_bound`, verification passed, commit `65e9930`, the thread was answered ("Addressed in 65e9930 ...") and **resolved**. (2) "make this an apply-mode test against a real workspace": **declined** with a reason (offline plan-mode tests only), reply posted, thread left **open** for a person |
@@ -165,8 +165,8 @@ code, so the agent is told not to bless insecure behaviour (for example `ftps_st
 - The analysis cannot run Terraform, so it cannot tell whether the existing tests pass. It does run the static test-quality check
   (a script, nothing from the PR executes) before the model, and a failing check overrides `no_change_needed` / `skipped` with
   `tests_need_update` (`apply-quality-to-report.sh`). Seen on pull request 17, where the analysis said "nothing to do" while verify failed.
-- The automatic analysis and writing (`agent-analysis.yml`) are exercised on GitHub by pull requests 17 and 22, but only a few
-  runs: one module per run, Haiku, a public repository. It does not receive the Checkov SARIF. It depends on `pull_request_target`,
+- The automatic analysis and writing (`tf-ai-analysis.yml`) are exercised on GitHub by pull requests 17 and 22, but only a few
+  runs: one module per run, Haiku, a public repository. It receives the Checkov SARIF from the same `reusable-checkov` scan the writing step reuses. It depends on `pull_request_target`,
   which needs the Actions event policy described in `docs/actions-policy.md` after 2 November 2026.
 - The comment-driven flow is covered locally by `scripts/test-guards.sh` (the scripts) and on GitHub by the real run on pull
   request 7. There is no local simulation of the workflows. Not yet exercised on GitHub: a branch that moves during a run, and a
@@ -200,6 +200,6 @@ code, so the agent is told not to bless insecure behaviour (for example `ftps_st
 - Evaluation suite: a fixed set of changes with expected tests and findings, scored on every model or prompt change.
 - Federated short-lived credentials for the model API, an egress allow-list on the runner, and Terraform for the agent in a
   container without the key.
-- Signed commits through the API and branch protection that requires `verify`; Dependabot for action SHAs; a scheduled `Warm caches`.
+- Signed commits through the API and branch protection that requires `verify`; Dependabot for action SHAs; a scheduled `tf-cache-warm`.
 - Per-PR token budget and skipping drafts. Checkov SARIF to code scanning on changed paths with a baseline.
 - Integration tests (`terraform test` with real resources) in an ephemeral subscription on merge, outside this offline workflow.

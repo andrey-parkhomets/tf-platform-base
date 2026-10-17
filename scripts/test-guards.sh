@@ -182,8 +182,8 @@ is "no valid report never says 'no test work is recommended'" "$(grep -c 'No tes
 
 echo "== workflows"
 cd "$repo" || exit 1
-expect_rc "no workflow inherits all secrets" 1 grep -rq 'secrets: inherit' .github/workflows
-is "the write path has one implementation" "$(grep -lE 'claude-code-action' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "agent-analysis.yml agent-write.yml "
+expect_rc "no workflow inherits all secrets" 1 grep -rq --include='*.yml' 'secrets: inherit' .github/workflows
+is "the write path has one implementation" "$(grep -lE 'claude-code-action' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "reusable-tf-ai-write.yml tf-ai-analysis.yml "
 
 echo "== check-test-quality.sh (insecure defaults)"
 r="$tmp/q2"; new_repo "$r"; cd "$r" || exit 1
@@ -220,6 +220,28 @@ is "skipped is overridden too" "$("$scripts/apply-quality-to-report.sh" r3.json 
 is "tests_needed is left alone" "$("$scripts/apply-quality-to-report.sh" r2.json q.txt | jq -r .decision)" tests_needed
 is "passing check changes nothing" "$("$scripts/apply-quality-to-report.sh" r1.json q_ok.txt | jq -r .decision)" no_change_needed
 is "missing quality file changes nothing" "$("$scripts/apply-quality-to-report.sh" r1.json nofile.txt | jq -r .decision)" no_change_needed
+
+echo "== workflow naming conventions (.github/workflows/README.md)"
+cd "$repo" || exit 1
+bad=""
+for f in .github/workflows/*.yml; do
+  stem=$(basename "$f" .yml)
+  nm=$(sed -n 's/^name:[[:space:]]*//p' "$f" | head -1 | tr -d '"')
+  trig=$(awk '/^on:/{f=1;next} f&&/^[a-z]/{exit} f&&/^  [a-z_]+:/{gsub(/[: ]/,"");print}' "$f" | tr '\n' ' ')
+  [[ "$nm" == "$stem" ]] || bad="$bad $stem(name=$nm)"
+  if [[ "$stem" == reusable-* ]]; then
+    [[ "$trig" == "workflow_call " ]] || bad="$bad $stem(reusable must only use workflow_call: $trig)"
+  else
+    [[ "$trig" != *workflow_call* ]] || bad="$bad $stem(uses workflow_call but is not named reusable-*)"
+    [[ "$stem" == tf-* ]] || bad="$bad $stem(entry workflows start with tf-)"
+  fi
+done
+is "workflow names follow the conventions" "${bad:-none}" none
+called_missing=""
+while IFS= read -r c; do
+  [[ -f ".github/workflows/$c" ]] || called_missing="$called_missing $c"
+done < <(grep -rhoE --include='*.yml' 'uses: \./\.github/workflows/[A-Za-z0-9._-]+\.yml' .github/workflows | sed 's#.*/##' | sort -u)
+is "every called reusable workflow exists" "${called_missing:-none}" none
 
 echo "== Actions event policy documentation"
 cd "$repo" || exit 1

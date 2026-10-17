@@ -1,4 +1,4 @@
-name: Warm caches
+name: tf-cache-warm
 
 # Only runs on main. Pull request runs restore these caches and never write them, so a pull request
 # cannot plant a provider binary or an index that later runs trust. Provider binaries are still

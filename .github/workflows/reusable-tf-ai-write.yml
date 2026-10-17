@@ -1,7 +1,7 @@
-name: Terraform test agent (write tests)
+name: reusable-tf-ai-write
 
-# Reusable workflow: the part of the agent that writes tests and commits them. Called by agent-commands.yml (a person asked
-# with a comment); other callers can use it the same way.
+# Reusable workflow: the part of the agent that writes tests and commits them. Called by tf-ai-commands.yml (a person asked
+# with a comment) and by tf-ai-analysis.yml (the analysis decided tests are needed); other callers can use it the same way.
 #
 # The caller has already decided WHAT to do (which directories, which command), checked who asked, and resolved the pull
 # request. This workflow trusts only those inputs, and re-validates nothing about the people. What it enforces itself:
@@ -42,6 +42,10 @@ on:
         description: "login of the person who asked, recorded in the commit message"
         type: string
         default: ""
+      sarif_artifact:
+        description: "name of a Checkov SARIF artifact the caller already produced; empty = scan here"
+        type: string
+        default: ""
     secrets:
       ANTHROPIC_API_KEY:
         required: true
@@ -59,31 +63,16 @@ env:
 
 jobs:
   # --------------------------------------------------------------------------------------------------------------------
+  # Skipped when the caller already scanned and passes the SARIF artifact (tf-ai-analysis), to avoid scanning twice in one run.
   checkov:
     name: Checkov
-    runs-on: ubuntu-24.04
+    if: ${{ inputs.sarif_artifact == '' }}
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ inputs.head_sha }}
-          persist-credentials: false
-      # Private module sources: see the notes on the same step in terraform-checks.yml.
-      - uses: bridgecrewio/checkov-action@6f26dc90000b74feb589a906cdfae540f5119895 # v12.3134.0
-        with:
-          directory: .
-          config_file: .checkov.yaml
-          soft_fail: true
-          output_format: cli,sarif
-          output_file_path: console,results.sarif
-          skip_results_upload: true
-          download_external_modules: false
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: checkov
-          path: results.sarif
-          if-no-files-found: warn
+    uses: ./.github/workflows/reusable-checkov.yml
+    with:
+      ref: ${{ inputs.head_sha }}
+      artifact_name: checkov
 
   # --------------------------------------------------------------------------------------------------------------------
   agent:
@@ -145,7 +134,7 @@ jobs:
           node-version: "22"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: checkov
+          name: ${{ inputs.sarif_artifact || 'checkov' }}
           path: .agent/checkov-dl
         continue-on-error: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -510,7 +499,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "{tf-tests-*,verify-*,checkov,commits}"
+          pattern: "{tf-tests-*,verify-*,${{ inputs.sarif_artifact || 'checkov' }},commits}"
           path: dl
         continue-on-error: true
       - name: Render comment
@@ -521,12 +510,13 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           REPO: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
+          SARIF_ARTIFACT: ${{ inputs.sarif_artifact || 'checkov' }}
         run: |
           mkdir -p .agent/report .agent/verify
           for d in dl/tf-tests-*; do [ -d "$d" ] || continue; s=${d##*/tf-tests-}; cp "$d/report.json" ".agent/report/$s.json" 2>/dev/null || true; done
           for d in dl/verify-*; do [ -d "$d" ] && cp "$d"/*.json "$d"/*.log .agent/verify/ 2>/dev/null || true; done
           cp dl/commits/commits.json .agent/commits.json 2>/dev/null || echo '[]' >.agent/commits.json
-          f=$(find dl/checkov -name '*.sarif' -print -quit 2>/dev/null || true); [ -n "$f" ] && cp "$f" .agent/checkov.sarif || true
+          f=$(find "dl/$SARIF_ARTIFACT" -name '*.sarif' -print -quit 2>/dev/null || true); [ -n "$f" ] && cp "$f" .agent/checkov.sarif || true
           JOB_RESULTS=$(jq -c 'map_values(.result)' <<<"$JOB_RESULTS")
           export JOB_RESULTS
           trusted/.github/scripts/render-report.sh >.agent/comment.md

@@ -1,7 +1,7 @@
 # GitHub Actions event policy for this repository
 
 **Do this before 2 November 2026.** From that date GitHub blocks `pull_request_target` workflows in public repositories that have no
-Actions event policy of their own (a "default policy"). `agent-analysis.yml` uses that event, so without a policy the automatic
+Actions event policy of their own (a "default policy"). `tf-ai-analysis.yml` uses that event, so without a policy the automatic
 analysis, and with it the automatic writing of tests, stops. Until then the Actions page shows a warning such as
 *"Workflow execution policy warning (evaluate mode)"* on that workflow. The comment commands (`agent coverage` ...) and the
 deterministic checks are other events and keep working either way.
@@ -31,14 +31,14 @@ Allowed events, one row per trigger used in `.github/workflows/`:
 
 | Event | Used by | What breaks if it is missing |
 |---|---|---|
-| `pull_request` | `terraform-checks.yml` | lint, Checkov, verify and the hint comment on every PR |
-| `pull_request_target` | `agent-analysis.yml` | the automatic analysis and the automatic writing of tests |
-| `issue_comment` | `agent-commands.yml` | `agent coverage`, `agent check comments`, `agent remove` |
-| `push` | `cache-warm.yml` | the provider and CodeGraph caches are no longer refreshed on `main` |
-| `schedule` | `cache-warm.yml` | the scheduled cache refresh |
-| `workflow_dispatch` | `cache-warm.yml` | running `Warm caches` by hand |
+| `pull_request` | `tf-check.yml` | lint, Checkov, verify and the hint comment on every PR |
+| `pull_request_target` | `tf-ai-analysis.yml` | the automatic analysis and the automatic writing of tests |
+| `issue_comment` | `tf-ai-commands.yml` | `agent coverage`, `agent check comments`, `agent remove` |
+| `push` | `tf-cache-warm.yml` | the provider and CodeGraph caches are no longer refreshed on `main` |
+| `schedule` | `tf-cache-warm.yml` | the scheduled cache refresh |
+| `workflow_dispatch` | `tf-cache-warm.yml` | running `tf-cache-warm` by hand |
 
-`workflow_call` (used by `agent-write.yml`) is not an event that starts a run; it needs no entry.
+`workflow_call` (used by `reusable-tf-ai-write.yml` and `reusable-checkov.yml`) is not an event that starts a run; it needs no entry.
 Do not add events the repository does not use (`workflow_run`, `pull_request_review`, `issues`, ...): a smaller list is the
 point of the policy.
 
@@ -48,9 +48,9 @@ point of the policy.
 2. Exercise each path once and look at the Actions page for "Workflow execution policy" warnings. There should be none:
    - open or push to a pull request that touches a module (`pull_request`, `pull_request_target`);
    - comment `agent check comments` on it (`issue_comment`);
-   - run **Warm caches** from the Actions tab (`workflow_dispatch`) and merge something to `main` (`push`);
+   - run **tf-cache-warm** from the Actions tab (`workflow_dispatch`) and merge something to `main` (`push`);
    - `schedule` fires by itself; check the next scheduled run after the policy exists.
-3. The warning on `agent-analysis.yml#L1` seen before the policy existed should be gone.
+3. The warning on `tf-ai-analysis.yml#L1` seen before the policy existed should be gone.
 4. Switch the policy to **Active** and repeat step 2 once.
 
 If something is blocked, set the policy back to **Evaluate** (or disable it) and add the missing event. Nothing in the

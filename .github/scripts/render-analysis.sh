@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the comment for the automatic, analysis-only agent run (agent-analysis.yml). The agent has decided what the change
+# Builds the comment for the automatic, analysis-only agent run (tf-ai-analysis.yml). The agent has decided what the change
 # needs; nothing was written to the branch. Same rules as render-report.sh: all agent-authored text goes through `clean`.
 #   env: MATRIX (detect output, possibly truncated), TOTAL (number of changed directories before the cap), RUN_URL
 #   reads .agent/report/<slug>.json
