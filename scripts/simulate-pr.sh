@@ -180,7 +180,7 @@ EOF
 # Stand-in for terraform-docs/gh-actions. act cannot run that Docker action faithfully: with `args` set it
 # treats the input as the container command and skips the action's `runs.env`, and without it it leaves
 # `${{ inputs.args }}` unexpanded, so the action either fails or silently checks nothing. This one runs the same
-# terraform-docs binary with the same config and the same "generate, stage, count changes" logic as the
+# terraform-docs binary (v0.20.0, the version bundled in the action's image) with the same config and the same "generate, stage, count changes" logic as the
 # action's docker-entrypoint.sh.
 docs="$work/docs-action"
 mkdir -p "$docs"
@@ -210,9 +210,9 @@ runs:
         FAIL_ON_DIFF: ${{ inputs.fail-on-diff }}
       run: |
         set -euo pipefail
-        v=0.24.0; f="terraform-docs-v${v}-linux-amd64.tar.gz"
+        v=0.20.0; f="terraform-docs-v${v}-linux-amd64.tar.gz"
         (cd /tmp && curl -sSLO "https://github.com/terraform-docs/terraform-docs/releases/download/v${v}/${f}" \
-          && echo "9005daf969de0b50134493a2c00078b49f5f5b39d021cda7c89bf4d4f3d776d3  ${f}" | sha256sum -c - >/dev/null \
+          && echo "34ae01772412bb11474e6718ea62113e38ff5964ee570a98c69fafe3a6dff286  ${f}" | sha256sum -c - >/dev/null \
           && sudo tar -xzf "$f" -C /usr/local/bin terraform-docs)
         for d in ${DIRS//,/ }; do
           terraform-docs --config "$CONFIG" --output-mode "$METHOD" --output-file "$OUTFILE" "$d"

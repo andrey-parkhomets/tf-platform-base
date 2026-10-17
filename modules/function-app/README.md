@@ -4,7 +4,7 @@
 ## Requirements
 
 | Name | Version |
-| ---- | ------- |
+|------|---------|
 | terraform | >= 1.9.0 |
 | azurerm | ~> 4.0 |
 | external | ~> 2.3 |
@@ -12,7 +12,7 @@
 ## Providers
 
 | Name | Version |
-| ---- | ------- |
+|------|---------|
 | azurerm | 4.81.0 |
 | external | 2.4.2 |
 
@@ -23,7 +23,7 @@ No modules.
 ## Resources
 
 | Name | Type |
-| ---- | ---- |
+|------|------|
 | [azurerm_linux_function_app.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/linux_function_app) | resource |
 | [azurerm_role_assignment.runtime_storage](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_service_plan.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/service_plan) | resource |
@@ -32,7 +32,7 @@ No modules.
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-| ---- | ----------- | ---- | ------- | :------: |
+|------|-------------|------|---------|:--------:|
 | app\_settings | Application settings. | `map(string)` | `{}` | no |
 | location | Azure region. | `string` | n/a | yes |
 | name | Function app name. | `string` | n/a | yes |
@@ -46,7 +46,7 @@ No modules.
 ## Outputs
 
 | Name | Description |
-| ---- | ----------- |
+|------|-------------|
 | id | ID of the function app. |
 | principal\_id | Object ID of the app's managed identity. |
 <!-- END_TF_DOCS -->
