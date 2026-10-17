@@ -1,0 +1,6 @@
+# Checkov configuration. Add a skip only with a written reason.
+framework:
+  - terraform
+download-external-modules: false
+quiet: true
+skip-check: []

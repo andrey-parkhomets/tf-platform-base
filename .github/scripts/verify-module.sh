@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Runs the deterministic checks for one directory, outside the LLM:
+#   fmt -check, init (lock file must already satisfy providers), validate, test.
+# Writes .agent/verify/<slug>.json and .agent/verify/<slug>.log. Exit code is 0 only if all pass.
+# Needs no credentials. Must run in a job that has no secrets.
+set -uo pipefail
+
+dir=${1:?directory}
+slug=${dir//\//-}
+out=.agent/verify
+mkdir -p "$out"
+log="$out/$slug.log"
+: >"$log"
+
+run() { # run <name> <cmd...>; records pass/fail in $results
+  local name=$1; shift
+  { echo "### $name: $*"; } >>"$log"
+  if (cd "$dir" && "$@") >>"$log" 2>&1; then
+    results=$(jq -c --arg n "$name" '. + {($n): "pass"}' <<<"$results")
+    return 0
+  fi
+  results=$(jq -c --arg n "$name" '. + {($n): "fail"}' <<<"$results")
+  return 1
+}
+
+results='{}'
+ok=0
+run fmt terraform fmt -check -recursive -diff || ok=1
+if run init terraform init -backend=false -input=false -lockfile=readonly -no-color; then
+  run validate terraform validate -no-color || ok=1
+  if compgen -G "$dir/tests/*.tftest.hcl" >/dev/null; then
+    run test terraform test -no-color || ok=1
+  else
+    results=$(jq -c '. + {test: "none"}' <<<"$results")
+  fi
+else
+  ok=1
+fi
+
+# Heuristic mutation check (informational): do the tests notice simple breakages of the module?
+mutation='{}'
+if [[ $ok -eq 0 ]] && compgen -G "$dir/tests/*.tftest.hcl" >/dev/null; then
+  mout=$("$(dirname "$0")/mutation-check.sh" "$dir" 2>&1 || true)
+  echo "### mutation check" >>"$log"; echo "$mout" >>"$log"
+  total=$(sed -n 's/^mutants: \([0-9]*\), survived: \([0-9]*\)$/\1/p' <<<"$mout")
+  survived=$(sed -n 's/^mutants: \([0-9]*\), survived: \([0-9]*\)$/\2/p' <<<"$mout")
+  survivors=$(grep '^SURVIVED: ' <<<"$mout" | sed 's/^SURVIVED: //' | jq -R . | jq -sc .)
+  mutation=$(jq -nc --argjson t "${total:-0}" --argjson s "${survived:-0}" --argjson l "${survivors:-[]}" '{total: $t, survived: $s, survivors: $l}')
+fi
+
+# "Success! 5 passed, 0 failed." comes from `terraform test`
+summary=$(grep -E '^(Success|Fail)[!a-z ]*[0-9]+ passed, [0-9]+ failed' "$log" | tail -1 || true)
+jq -n --arg dir "$dir" --argjson results "$results" --arg summary "$summary" --argjson mutation "$mutation" --argjson ok "$([ $ok -eq 0 ] && echo true || echo false)" \
+  '{dir: $dir, ok: $ok, results: $results, summary: $summary, mutation: $mutation}' >"$out/$slug.json"
+
+exit "$ok"

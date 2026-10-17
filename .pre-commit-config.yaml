@@ -1,0 +1,34 @@
+# Install once with `pre-commit install`. CI runs the same hooks on the changed files.
+# Needs terraform and tflint on PATH. Module docs are checked in CI by terraform-docs/gh-actions.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0 # 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      # An Anthropic API key in the repository is a leaked key. Keys live in GitHub secrets (and, for local act runs, in the
+      # git-ignored .secrets file).
+      - id: no-anthropic-api-key
+        name: no Anthropic API keys
+        language: pygrep
+        entry: 'sk-ant-[A-Za-z0-9_-]{20,}'
+        types: [text]
+
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.109.2 # 80c8033123f6d6b9ccd1a9458562ea4180742af7
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+        args:
+          - --hook-config=--retry-once-with-cleanup=true
+          # Terraform's plugin cache is not safe for concurrent `init` runs.
+          - --hook-config=--parallelism-limit=1
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl

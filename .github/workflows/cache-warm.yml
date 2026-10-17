@@ -1,0 +1,61 @@
+name: Warm caches
+
+# Only runs on main. Pull request runs restore these caches and never write them, so a pull request
+# cannot plant a provider binary or an index that later runs trust. Provider binaries are still
+# checked against the hashes in each .terraform.lock.hcl on every `terraform init`.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/.terraform.lock.hcl"
+      - "modules/**"
+      - "stacks/**"
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  TF_VERSION: "1.15.1"
+  TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tf-plugin-cache
+  CODEGRAPH_VERSION: "1.6.2"
+
+jobs:
+  warm:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Download providers into the plugin cache
+        run: |
+          set -euo pipefail
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          for d in modules/* stacks/*; do
+            [ -d "$d" ] && terraform -chdir="$d" init -backend=false -input=false -lockfile=readonly >/dev/null
+          done
+          du -sh "$TF_PLUGIN_CACHE_DIR"
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+
+      - name: Build the CodeGraph index
+        run: |
+          npm install --prefix "$RUNNER_TEMP/codegraph" --ignore-scripts "@colbymchenry/codegraph@${CODEGRAPH_VERSION}"
+          "$RUNNER_TEMP/codegraph/node_modules/.bin/codegraph" init .
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .codegraph
+          key: codegraph-${{ runner.os }}-${{ env.CODEGRAPH_VERSION }}-${{ github.sha }}
