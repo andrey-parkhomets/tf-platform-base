@@ -200,6 +200,12 @@ expect_rc "AllAllowed on the default fails, other runs unaffected" 1 "$scripts/c
 w 'run "tls" {\n  command = plan\n  assert {\n    condition     = azurerm_x.this.min_tls_version == "TLS1_2"\n    error_message = "m"\n  }\n}\n'
 expect_rc "TLS1_2 passes" 0 "$scripts/check-test-quality.sh" modules/m1
 
+echo "== placeholders survive the comment sanitizer"
+r="$tmp/ph"; mkdir -p "$r/.agent/report"; cd "$r" || exit 1
+echo '{"dir":"modules/a","decision":"no_change_needed","rationale":"names are pe-<name> and <script>alert(1)</script>"}' >.agent/report/modules-a.json
+out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-analysis.sh")
+is "placeholder kept, tags neutralised" "$(grep -c 'pe-‹name›' <<<"$out") $(grep -c '<script>' <<<"$out")" "1 0"
+
 echo "== select-auto-write.sh"
 r="$tmp/sel"; mkdir -p "$r/rep"; cd "$r" || exit 1
 m='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"},{"dir":"modules/c","slug":"modules-c"},{"dir":"modules/d","slug":"modules-d"}]'
