@@ -32,7 +32,7 @@ comment ──► agent-commands.yml
 | **Skills** | `.claude/skills/`: `tf-change-analysis`, `tf-test-writing`, `tf-test-verify`, `tf-review-findings`, and the vendored HashiCorp `terraform-test` (pinned, see `PROVENANCE.md`) |
 | Deterministic scripts (tested by `scripts/test-guards.sh`) | `.github/scripts/`: `parse-command.sh`, `detect-modules.sh`, `guard-paths.sh`, `check-test-quality.sh`, `verify-module.sh`, `mutation-check.sh`, `commit-patch.sh`, `revert-commit.sh`, `collect-threads.sh`, `resolve-threads.sh`, `render-hint.sh`, `render-report.sh`, `render-analysis.sh` |
 | Local checks | `scripts/test-guards.sh` (seconds, no Docker), pre-commit config, `.tflint.hcl`, `.checkov.yaml` |
-| More detail | `docs/security-review.md`, `docs/model-comparison.md`, `docs/lessons-from-github-runs.md` |
+| More detail | `docs/actions-policy.md` (the Actions event policy to create), `docs/security-review.md`, `docs/model-comparison.md`, `docs/lessons-from-github-runs.md` |
 
 How a run uses the skills: `tf-change-analysis` (read the diff, ask CodeGraph who depends on the changed symbols, decide
 `created` / `updated` / `no_change_needed` / `skipped`; in `revise` mode, decide per review thread), then `terraform-test` plus
@@ -72,7 +72,11 @@ One-time setup:
    in a comment and stops before spending anything.
 3. Optional repository variables: `CLAUDE_MODEL`, `AGENT_MAX_TURNS` (default 60), `ANALYSIS_MAX_TURNS` (30), `ANALYSIS_MAX_DIRS` (5), `AGENT_AUTO_ANALYSIS` (`0` turns the automatic analysis off), `AGENT_AUTO_WRITE` (`0` turns automatic writing off), `AGENT_AUTO_WRITE_MAX` (3), `AGENT_SUBPROCESS_SCRUB` (set `0` only to
    run without the subprocess scrub).
-4. Merge to the default branch. `issue_comment` workflows and `.claude/` are read from there. Optionally run `Warm caches` once.
+4. Merge to the default branch. `issue_comment` and `pull_request_target` workflows and `.claude/` are read from there. Optionally run
+   `Warm caches` once.
+5. **Before 2 November 2026:** create an Actions event policy that allows the events the workflows use, `pull_request_target`
+   included. From that date GitHub blocks `pull_request_target` in public repositories without one, which would stop the automatic
+   analysis. Step by step, with the exact event list and how to check it in Evaluate mode: `docs/actions-policy.md`.
 
 The analysis needs only `ANTHROPIC_API_KEY`; without it the run is skipped with a notice. Using it, in a pull request from a branch of this repository (the analysis comment appears by itself; the commands below act on it):
 
@@ -161,9 +165,9 @@ code, so the agent is told not to bless insecure behaviour (for example `ftps_st
 - The analysis cannot run Terraform, so it cannot tell whether the existing tests pass. It does run the static test-quality check
   (a script, nothing from the PR executes) before the model, and a failing check overrides `no_change_needed` / `skipped` with
   `tests_need_update` (`apply-quality-to-report.sh`). Seen on pull request 17, where the analysis said "nothing to do" while verify failed.
-- The automatic analysis (`agent-analysis.yml`) has not run on GitHub yet: it is new, it lives on the default branch only after
-  merge, and `pull_request_target` workflows are read from there. The renderer is tested locally (`scripts/test-guards.sh`) and the
-  workflow passes `actionlint`; the first real run is the next example to add. It also does not receive the Checkov SARIF.
+- The automatic analysis and writing (`agent-analysis.yml`) are exercised on GitHub by pull requests 17 and 22, but only a few
+  runs: one module per run, Haiku, a public repository. It does not receive the Checkov SARIF. It depends on `pull_request_target`,
+  which needs the Actions event policy described in `docs/actions-policy.md` after 2 November 2026.
 - The comment-driven flow is covered locally by `scripts/test-guards.sh` (the scripts) and on GitHub by the real run on pull
   request 7. There is no local simulation of the workflows. Not yet exercised on GitHub: a branch that moves during a run, and a
   fork pull request (refused by design).
