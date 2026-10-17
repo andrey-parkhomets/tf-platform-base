@@ -1,0 +1,18 @@
+name: probe-env
+on:
+  push:
+    branches: [probe/env-secrets]
+  pull_request:
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    environment: tf-ai-agent
+    steps:
+      - env:
+          S: ${{ secrets.PROBE_SECRET }}
+          R: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          echo "ref=$GITHUB_REF"
+          echo "environment secret length: ${#S}"
+          echo "repo-level secret length (still readable?): ${#R}"
