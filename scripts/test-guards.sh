@@ -186,6 +186,20 @@ cd "$repo" || exit 1
 expect_rc "no workflow inherits all secrets" 1 grep -rq --include='*.yml' 'secrets: inherit' .github/workflows
 is "the write path has one implementation" "$(grep -lE 'claude-code-action' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "reusable-tf-ai-round.yml tf-ai-analysis.yml "
 
+echo "== check-test-quality.sh (collections compared with a literal)"
+r="$tmp/q3"; new_repo "$r"; cd "$r" || exit 1
+t=modules/m1/tests/a.tftest.hcl
+cond_test() { printf 'run "r" {\n  command = plan\n  assert {\n    condition     = %s\n    error_message = "m"\n  }\n}\n' "$1" >"$t"; }
+for bad in 'azurerm_x.this.names == ["blob"]' 'tolist(azurerm_x.this.names) == ["blob"]' 'azurerm_x.this.tags == { env = "dev" }' 'azurerm_x.this.items == []' 'azurerm_x.this.names != ["a", "b"]' 'azurerm_x.this.tags=={ env = "dev" }'; do
+  cond_test "$bad"; expect_rc "a collection compared with a literal is rejected: $bad" 1 "$scripts/check-test-quality.sh" modules/m1
+done
+for good in 'contains(azurerm_x.this.names, "blob")' 'one(azurerm_x.this.names) == "blob"' 'length(azurerm_x.this.names) == 1' 'azurerm_x.this.names == toset(["blob"])' 'tolist(azurerm_x.this.names) == tolist(["blob"])' 'azurerm_x.this.tags["env"] == "dev"' 'azurerm_x.this.tags == tomap({ env = "dev" })' 'toset([for l in azurerm_x.this.logs : l.category]) == toset(["A", "B"])' 'azurerm_x.this.name == "pe-test"' 'length(azurerm_x.this.items) == 0'; do
+  cond_test "$good"; expect_rc "the correct idiom passes: $good" 0 "$scripts/check-test-quality.sh" modules/m1
+done
+cond_test 'azurerm_x.this.names == ["blob"]'
+is "the message tells the author what to do instead" "$("$scripts/check-test-quality.sh" modules/m1 2>&1 | grep -c 'contains(x, v), one(x), length(x)')" 1
+is "only the offending run is named" "$("$scripts/check-test-quality.sh" modules/m1 2>&1 | grep -c 'run "r"')" 1
+
 echo "== check-test-quality.sh (insecure defaults)"
 r="$tmp/q2"; new_repo "$r"; cd "$r" || exit 1
 t=modules/m1/tests/a.tftest.hcl

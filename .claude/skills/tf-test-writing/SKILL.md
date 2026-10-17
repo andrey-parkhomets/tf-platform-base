@@ -34,6 +34,24 @@ repo does not allow).
   so the test is deterministic. Mocking `external` also means the script `scripts/build-info.sh`
   is never executed by the test.
 
+## Comparing values (Terraform types): the mistake you cannot see
+
+Provider attributes are collections: `set(string)`, `list(string)`, `map(string)`. A literal `[...]` is a **tuple** and a literal
+`{...}` is an **object**. In Terraform `==` between values of different types is simply `false`; the run only prints the warning
+"LHS and RHS values are of different types", and your test fails with a message that looks like a wrong value. This is checked in
+Terraform 1.15 and holds for a `list(string)` as well as a set or a map, so converting the attribute with `tolist()` does **not** help.
+
+| Do not write | Write one of |
+|---|---|
+| `x.subresource_names == ["blob"]` | `contains(x.subresource_names, "blob")`, `one(x.subresource_names) == "blob"`, `length(x.subresource_names) == 1`, or `x.subresource_names == toset(["blob"])` |
+| `tolist(x.zone_ids) == ["a"]` | `tolist(x.zone_ids) == tolist(["a"])`, or `tolist(x.zone_ids)[0] == "a"` |
+| `x.tags == { env = "dev" }` | `x.tags["env"] == "dev"`, or `x.tags == tomap({ env = "dev" })` |
+| `x.items == []` | `length(x.items) == 0` |
+
+Rule of thumb: compare an element (`contains`, `one`, an index, a key, `length`), or convert the **literal** to the attribute's type
+(`toset`, `tolist`, `tomap`). Never put a bare `[...]` or `{...}` on the right of `==` or `!=`.
+`check-test-quality.sh` rejects it statically, and you can run it before you report.
+
 ## What to cover
 
 - Defaults that matter for security (TLS version, public access, network default action, HTTPS only).

@@ -3,6 +3,9 @@
 #  - every run block has at least one assert block or expect_failures
 #  - no run block uses `command = apply` (no cloud, no credentials)
 #  - no assert is a constant `true`
+#  - no condition compares with a [..] or {..} literal: a literal is a tuple/object, so `==` against a list, set or map attribute is
+#    always false in Terraform (it only warns "LHS and RHS values are of different types"). The model cannot run Terraform, so
+#    this turns the most common blind mistake into an immediate, actionable message
 #  - no assert pins an insecure DEFAULT (see `insecure` below): the test would bless it and make a later fix look like a
 #    regression. Asserting that an explicitly set input is honoured is fine, so a run that sets the attribute itself is allowed.
 #  - no symlinks under tests/
@@ -41,6 +44,9 @@ for f in "$dir"/tests/*.tftest.hcl; do
     inrun && /^[ \t]*expect_failures[ \t]*=/ { expects++ }
     /^[ \t]*command[ \t]*=[ \t]*apply/ { printf "::error file=%s::command = apply is not allowed (no cloud resources)\n", file; bad = 1 }
     /^[ \t]*condition[ \t]*=[ \t]*true[ \t]*$/ { printf "::error file=%s::constant assert condition (true)\n", file; bad = 1 }
+    /^[ \t]*condition[ \t]*=.*(==|!=)[ \t]*[\[{]/ {
+      printf "::error file=%s::run \"%s\": the condition compares with a [..] or {..} literal. A literal is a tuple or object, so == against a list, set or map attribute is always false in Terraform (different types). Use contains(x, v), one(x), length(x), an index or key, or convert the literal: toset([..]), tolist([..]), tomap({..})\n", file, name; bad = 1
+    }
     END { finish(); exit bad }
   ' "$f" || status=1
 done
