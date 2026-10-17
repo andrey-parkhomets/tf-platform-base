@@ -1,4 +1,4 @@
-name: Terraform test agent
+name: tf-ai-commands
 
 # The agent runs only when a person asks for it with a comment on the pull request. The whole comment must be one command:
 #   agent coverage [modules/<name>]   write or update tests, verify them, commit them to the branch
@@ -7,18 +7,18 @@ name: Terraform test agent
 #
 # `issue_comment` always runs the workflow, scripts and agent definition from the DEFAULT branch, so a pull request cannot
 # change them. This file decides who may ask for what (`gate`), reverts commits (`remove`, no model) and calls
-# agent-write.yml for the part that writes tests: model, verification without secrets, commit with the App token.
+# reusable-tf-ai-write.yml for the part that writes tests: model, verification without secrets, commit with the App token.
 # Three secrets, three kinds of job, no job has two of them:
-#   ANTHROPIC_API_KEY          agent (in agent-write.yml)   runs the model and Terraform on PR code, cannot write to the repository
-#   (none)                     verify (in agent-write.yml)  runs Terraform on PR code, no secrets
-#   AGENT_APP_ID / _PRIVATE_KEY  commit (in agent-write.yml), remove   push access; they never run Terraform or the model
+#   ANTHROPIC_API_KEY          agent (in reusable-tf-ai-write.yml)   runs the model and Terraform on PR code, cannot write to the repository
+#   (none)                     verify (in reusable-tf-ai-write.yml)  runs Terraform on PR code, no secrets
+#   AGENT_APP_ID / _PRIVATE_KEY  commit (in reusable-tf-ai-write.yml), remove   push access; they never run Terraform or the model
 on:
   issue_comment:
     types: [created]
 
 # Non-commands get a unique group, so chatter never replaces a queued command. Commands on one pull request run in order.
 concurrency:
-  group: tf-agent-${{ github.event.issue.number }}-${{ startsWith(github.event.comment.body, 'agent ') && 'cmd' || github.run_id }}
+  group: tf-ai-commands-${{ github.event.issue.number }}-${{ startsWith(github.event.comment.body, 'agent ') && 'cmd' || github.run_id }}
   cancel-in-progress: false
 
 permissions: {}
@@ -183,7 +183,7 @@ jobs:
           path: threads.json
 
   # --------------------------------------------------------------------------------------------------------------------
-  # `agent coverage` and `agent check comments`: the writing part lives in agent-write.yml (reusable), so that any trigger can
+  # `agent coverage` and `agent check comments`: the writing part lives in reusable-tf-ai-write.yml (reusable), so that any trigger can
   # use the same implementation. Secrets are passed explicitly, one by one.
   write:
     name: Agent
@@ -192,7 +192,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: ./.github/workflows/agent-write.yml
+    uses: ./.github/workflows/reusable-tf-ai-write.yml
     with:
       command: ${{ needs.gate.outputs.command }}
       matrix: ${{ needs.gate.outputs.matrix }}
