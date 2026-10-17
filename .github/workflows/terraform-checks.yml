@@ -1,4 +1,8 @@
-name: Terraform test agent
+name: Terraform checks
+
+# Deterministic checks for every pull request that changes Terraform: lint, Checkov, and the existing tests of the changed
+# directories (fmt, init, validate, test, mutation check). No model and no secrets here. The agent that writes tests
+# is started by a comment, see agent-commands.yml.
 
 # `pull_request`, not `pull_request_target`: the workflow that runs is the one in the PR's
 # merge commit, from the same repository, with a read-only token unless a job asks for more.
@@ -8,12 +12,12 @@ on:
     paths:
       - "modules/**"
       - "stacks/**"
-      - ".github/workflows/tf-test-agent.yml"
+      - ".github/workflows/terraform-checks.yml"
       - ".github/scripts/**"
       - ".claude/**"
 
 concurrency:
-  group: tf-test-agent-${{ github.event.pull_request.number }}
+  group: terraform-checks-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions: {}
@@ -21,7 +25,6 @@ permissions: {}
 env:
   TF_VERSION: "1.15.1"
   TF_IN_AUTOMATION: "true"
-  CODEGRAPH_VERSION: "1.6.2"
 
 jobs:
   detect:
@@ -40,27 +43,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Changed directories
-        id: changed
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
-        with:
-          # One entry per changed module or stack: modules/<name>, stacks/<name>.
-          dir_names: true
-          dir_names_max_depth: 2
-          json: true
-          escape_json: false   # plain JSON array; names are validated again in detect-modules.sh
-          safe_output: true
-          files: |
-            modules/**
-            stacks/**
-          files_ignore: |
-            **/*.md
-            **/.terraform.lock.hcl
-
       - name: Build matrix
         id: matrix
         env:
-          CHANGED_DIRS: ${{ steps.changed.outputs.all_changed_files }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
@@ -170,209 +155,11 @@ jobs:
           path: results.sarif
           if-no-files-found: warn
 
-  agent:
-    name: Agent (${{ matrix.dir }})
-    runs-on: ubuntu-24.04
-    needs: [detect, lint, checkov]
-    # Not for forks (no secrets) and not for bots: the action refuses bot actors unless `allowed_bots` is set, which it never is.
-    if: needs.detect.outputs.any == 'true' && needs.detect.outputs.same_repo == 'true' && !endsWith(github.actor, '[bot]')
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      max-parallel: 3
-      matrix:
-        include: ${{ fromJSON(needs.detect.outputs.matrix) }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false
-      - name: Use the plugin cache
-        run: echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >>"$GITHUB_ENV"
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "22"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: checkov
-          path: .agent/checkov-dl
-        continue-on-error: true
-      - name: Restore provider cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ~/.terraform.d/plugin-cache
-          key: tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-${{ hashFiles('**/.terraform.lock.hcl') }}
-          restore-keys: |
-            tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-
-      - name: Restore CodeGraph index
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: .codegraph
-          key: codegraph-${{ runner.os }}-${{ env.CODEGRAPH_VERSION }}-${{ github.event.pull_request.base.sha }}
-          restore-keys: |
-            codegraph-${{ runner.os }}-${{ env.CODEGRAPH_VERSION }}-
-      - name: Prepare CodeGraph (incremental sync, full index on a cache miss)
-        run: |
-          set -euo pipefail
-          # Per-job prefix, not `--global`: parallel jobs must not share an npm directory.
-          npm install --prefix "$RUNNER_TEMP/codegraph" --ignore-scripts "@colbymchenry/codegraph@${CODEGRAPH_VERSION}"
-          export PATH="$RUNNER_TEMP/codegraph/node_modules/.bin:$PATH"
-          echo "$RUNNER_TEMP/codegraph/node_modules/.bin" >>"$GITHUB_PATH"
-          if [ -d .codegraph ]; then codegraph sync . ; else codegraph init . ; fi
-          mkdir -p "$HOME/.terraform.d/plugin-cache" .agent/report
-          # Checkov output is passed to the agent as one file.
-          f=$(find .agent/checkov-dl -name '*.sarif' -print -quit 2>/dev/null || true)
-          if [ -n "$f" ]; then cp "$f" .agent/checkov.sarif; fi
-
-      # With step debugging on, the action prints the model's full output (tool results, file contents). On a public
-      # repository those logs are public. Refuse instead of leaking.
-      - name: Refuse to run with step debugging
-        if: runner.debug == '1'
-        run: |
-          echo "::error::Step debugging is on (runner.debug=1): the agent action would print its full output. Re-run without debug logging."
-          exit 1
-
-      # Helper scripts the agent may run come from the BASE commit, copied outside the workspace. The workspace holds
-      # the pull request's files, and a repo-relative script there is PR-controlled code.
-      - name: Trusted helper scripts from the base commit
-        id: trusted
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/trusted"
-          if git cat-file -e "${BASE_SHA}:.github/scripts/check-test-quality.sh" 2>/dev/null; then
-            git archive "$BASE_SHA" .github/scripts | tar -x -C "$RUNNER_TEMP/trusted"
-            echo "quality_check=$RUNNER_TEMP/trusted/.github/scripts/check-test-quality.sh" >>"$GITHUB_OUTPUT"
-          fi
-
-      # anthropics/claude-code-action restores .claude/ from the base branch before it starts, because the PR head
-      # is untrusted: a pull request cannot change the agent's own instructions. The first pull request that
-      # introduces the agent therefore cannot run it. Say so instead of failing.
-      - name: Is the agent defined on the base branch?
-        id: defs
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if git cat-file -e "${BASE_SHA}:.claude/agents/tf-test-agent.md" 2>/dev/null; then
-            echo "present=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "present=false" >>"$GITHUB_OUTPUT"
-            echo "::notice::.claude/agents/tf-test-agent.md is not on the base branch yet, so the agent is skipped for this pull request."
-          fi
-
-      # The agent action removes the model key and cloud credentials from the environment of every process the agent
-      # starts (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB below). On Linux that needs bubblewrap and socat, and the action refuses to
-      # start without them. Fail here, with a clear message, if the sandbox does not work on this runner.
-      # To run without it, set the repository variable AGENT_SUBPROCESS_SCRUB to 0 (the key is then visible to terraform).
-      - name: Install the agent's sandbox (bubblewrap, socat)
-        if: ${{ steps.defs.outputs.present == 'true' && (vars.AGENT_SUBPROCESS_SCRUB || '1') != '0' }}
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq bubblewrap socat
-          command -v socat >/dev/null || { echo "::error::socat is missing; the agent's sandbox needs it."; exit 1; }
-          probe() { bwrap --unshare-pid --proc /proc --dev /dev --ro-bind / / true 2>/dev/null; }
-          if ! probe; then
-            # Ubuntu 24.04 restricts unprivileged user namespaces with AppArmor. On an ephemeral runner VM it is fine to lift that.
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 >/dev/null 2>&1 || true
-          fi
-          probe || {
-            echo "::error::bubblewrap cannot create a sandbox on this runner. Fix the runner, or set the repository variable AGENT_SUBPROCESS_SCRUB=0 to run the agent without subprocess isolation."
-            exit 1
-          }
-
-      - name: Run the agent
-        id: agent
-        if: steps.defs.outputs.present == 'true'
-        uses: anthropics/claude-code-action@374f254f5efaf968abfe15d399fd90972e8138b9 # v1
-        env:
-          TARGET_DIR: ${{ matrix.dir }}
-          TARGET_SLUG: ${{ matrix.slug }}
-          # Remove the model key and cloud credentials from the environment of every process the agent starts
-          # (terraform, scripts). Without it, `terraform test` on pull request code runs next to the key.
-          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: ${{ vars.AGENT_SUBPROCESS_SCRUB || '1' }}
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ github.token }}
-          display_report: "false"
-          prompt: |
-            Run as the tf-test-agent for the directory `${{ matrix.dir }}` (slug `${{ matrix.slug }}`).
-            Base SHA: ${{ github.event.pull_request.base.sha }}
-            Head SHA: ${{ github.event.pull_request.head.sha }}
-            Pull request number: ${{ github.event.pull_request.number }}
-            The pull request title and body are not provided on purpose; read the diff instead.
-            Write your report to `.agent/report/${{ matrix.slug }}.json`.
-            Test quality check (run it on your tests before you report): `${{ steps.trusted.outputs.quality_check }} ${{ matrix.dir }}`
-          claude_args: >-
-            --agent tf-test-agent
-            --model ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
-            --max-turns ${{ vars.AGENT_MAX_TURNS || '60' }}
-            --allowedTools "Read,Grep,Glob,Skill,Edit(modules/*/tests/**),Edit(stacks/*/tests/**),Edit(.agent/report/**),Bash(terraform -chdir=modules/* fmt*),Bash(terraform -chdir=modules/* init*),Bash(terraform -chdir=modules/* validate*),Bash(terraform -chdir=modules/* test*),Bash(terraform -chdir=stacks/* fmt*),Bash(terraform -chdir=stacks/* init*),Bash(terraform -chdir=stacks/* validate*),Bash(terraform -chdir=stacks/* test*),Bash(terraform fmt *),Bash(git diff*),Bash(git status*),Bash(git log*),Bash(${{ steps.trusted.outputs.quality_check }} *),Bash(codegraph explore *)"
-            --disallowedTools "WebFetch,WebSearch"
-
-      # In scrub mode Claude Code writes empty placeholder files (package.json, .npmrc, bunfig.toml, lockfiles, .env*, ...)
-      # into the workspace root so that pull-request-controlled runtime config cannot be picked up, and lists them under
-      # "# claude-code scrub-mode stubs" in .git/info/exclude. They are invisible to `git status`, and an empty package.json
-      # breaks the Node-based actions that run after this step. Delete the ones that are empty and untracked.
-      - name: Remove the agent action's placeholder files
-        if: always() && steps.defs.outputs.present == 'true'
-        run: |
-          awk '/^# claude-code scrub-mode stubs/ {f=1; next} f && /^\// {print substr($0, 2); next} f {f=0}' .git/info/exclude |
-          while IFS= read -r p; do
-            if [ -f "$p" ] && [ ! -s "$p" ] && ! git ls-files --error-unmatch -- "$p" >/dev/null 2>&1; then
-              rm -f -- "$p"
-              echo "removed placeholder: $p"
-            fi
-          done
-
-      - name: Guard - only test files may have changed
-        if: always()
-        run: .github/scripts/guard-paths.sh
-
-      - name: Collect patch
-        if: always()
-        env:
-          TARGET_SLUG: ${{ matrix.slug }}
-          AGENT_DEFINED: ${{ steps.defs.outputs.present }}
-        run: |
-          mkdir -p .agent/out
-          specs=(':(glob)modules/*/tests/*' ':(glob)stacks/*/tests/*')
-          git ls-files -z --others --exclude-standard -- "${specs[@]}" | xargs -0 -r git add -N --
-          git diff --binary -- "${specs[@]}" >".agent/out/tests.patch"
-          if [ "$AGENT_DEFINED" != "true" ]; then
-            echo '{"skipped": "agent_definition_not_on_base"}' >.agent/out/report.json
-          else
-            cp ".agent/report/${TARGET_SLUG}.json" .agent/out/report.json 2>/dev/null || echo '{}' >.agent/out/report.json
-          fi
-          wc -c .agent/out/tests.patch
-
-      # The agent's own transcript (tool calls, denied commands). The action runs with the key scrubbed from subprocesses
-      # and the transcript holds only what the agent read and ran, so it is safe to keep for 7 days when debugging.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always() && steps.agent.outputs.execution_file != ''
-        with:
-          name: agent-transcript-${{ matrix.slug }}
-          path: ${{ steps.agent.outputs.execution_file }}
-          retention-days: 7
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          name: tf-tests-${{ matrix.slug }}
-          path: .agent/out
-          include-hidden-files: true
-
   verify:
     name: Verify (${{ matrix.dir }})
     runs-on: ubuntu-24.04
-    needs: [detect, agent]
-    # Runs even when the agent leg failed, so the PR always gets a result for the existing tests.
-    if: ${{ !cancelled() && needs.detect.outputs.any == 'true' }}
+    needs: detect
+    if: ${{ needs.detect.outputs.any == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -397,23 +184,6 @@ jobs:
           key: tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-${{ hashFiles('**/.terraform.lock.hcl') }}
           restore-keys: |
             tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: tf-tests-${{ matrix.slug }}
-          path: .agent/in
-        continue-on-error: true
-      - name: Apply the agent's patch (test files only)
-        id: apply
-        run: |
-          set -euo pipefail
-          p=.agent/in/tests.patch
-          if [ -s "$p" ]; then
-            # Re-check the paths in the patch itself; do not trust the agent job's guard.
-            bad=$(git apply --numstat "$p" | cut -f3 | grep -Ev '^(modules|stacks)/[^/]+/tests/[A-Za-z0-9_.-]+\.(tftest\.hcl|tftest\.json|tfmock\.hcl)$' || true)
-            if [ -n "$bad" ]; then echo "::error::patch touches paths outside tests/: $bad"; exit 1; fi
-            git apply --check "$p"
-            git apply "$p"
-          fi
       - name: Static test quality checks
         env:
           DIR: ${{ matrix.dir }}
@@ -439,7 +209,7 @@ jobs:
   report:
     name: Report to the pull request
     runs-on: ubuntu-24.04
-    needs: [detect, lint, checkov, agent, verify]
+    needs: [detect, lint, checkov, verify]
     if: ${{ !cancelled() }}
     permissions:
       contents: read
@@ -450,27 +220,22 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: "{tf-tests-*,verify-*,checkov}"
+          pattern: "verify-*"
           path: .agent/dl
         continue-on-error: true
-      - name: Arrange artifacts
-        run: |
-          mkdir -p .agent/report .agent/verify .agent/patch
-          for d in .agent/dl/tf-tests-*; do [ -d "$d" ] || continue; s=${d##*/tf-tests-}; cp "$d/report.json" ".agent/report/$s.json" 2>/dev/null || true; cp "$d/tests.patch" ".agent/patch/$s.patch" 2>/dev/null || true; done
-          for d in .agent/dl/verify-*; do [ -d "$d" ] && cp "$d"/* .agent/verify/ 2>/dev/null || true; done
-          f=$(find .agent/dl/checkov -name '*.sarif' -print -quit 2>/dev/null || true); [ -n "$f" ] && cp "$f" .agent/checkov.sarif || true
       - name: Render comment
         env:
           MATRIX: ${{ needs.detect.outputs.matrix }}
           JOB_RESULTS: ${{ toJSON(needs) }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RUN_ID: ${{ github.run_id }}
         run: |
+          mkdir -p .agent/verify
+          for d in .agent/dl/verify-*; do [ -d "$d" ] && cp "$d"/* .agent/verify/ 2>/dev/null || true; done
           JOB_RESULTS=$(jq -c 'map_values(.result)' <<<"$JOB_RESULTS")
           export JOB_RESULTS
           [ "$(jq -r .detect <<<"$JOB_RESULTS")" = "success" ] || MATRIX='[]'
           export MATRIX
-          .github/scripts/render-report.sh >.agent/comment.md
+          .github/scripts/render-hint.sh >.agent/comment.md
           cat .agent/comment.md >>"$GITHUB_STEP_SUMMARY"
       - name: Post or update the comment
         if: ${{ needs.detect.outputs.any == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
