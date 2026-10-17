@@ -377,6 +377,10 @@ jobs:
       has_threads: ${{ 'false' }}
       requester: automatic
       sarif_artifact: checkov-sarif
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
 
   post:
     name: Post the analysis

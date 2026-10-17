@@ -10,8 +10,10 @@ name: reusable-tf-ai-write
 #   verify    no secrets   re-runs the patch the agent produced; only test paths are accepted
 #   commit    App token    pushes exactly the verified patch (no model, no Terraform)
 #   report    comment      posts the result
-# The secrets are not passed by the caller: the jobs that need them (`agent`, `commit`) declare the environment `tf-ai-agent`, which only
-# the default branch can use (docs/secrets-environment.md), and read them there. No job has two of them.
+# The secrets are declared here and passed by name by the caller (never all at once). A caller job cannot declare an environment, so what it
+# passes comes from repository secrets (none exist once they are deleted: empty). The jobs that need a secret (`agent`, `commit`) declare
+# the environment `tf-ai-agent`, which only the default branch can use; its secret of the same name takes precedence
+# (docs/secrets-environment.md). No job has two of them.
 on:
   workflow_call:
     inputs:
@@ -47,6 +49,14 @@ on:
         description: "name of a Checkov SARIF artifact the caller already produced; empty = scan here"
         type: string
         default: ""
+    secrets:
+      ANTHROPIC_API_KEY:
+        description: "the model key; the job that reads it declares the environment tf-ai-agent, whose secret of the same name wins"
+        required: false
+      AGENT_APP_ID:
+        required: false
+      AGENT_APP_PRIVATE_KEY:
+        required: false
 
 permissions: {}
 

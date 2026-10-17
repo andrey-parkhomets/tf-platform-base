@@ -217,6 +217,10 @@ jobs:
       pr_number: ${{ format('{0}', github.event.issue.number) }}
       has_threads: ${{ needs.gate.outputs.has_threads }}
       requester: ${{ github.event.comment.user.login }}
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
+      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
 
   # --------------------------------------------------------------------------------------------------------------------
   # `agent remove <sha>`: no model, no Terraform. Reverts a commit made by the agent, as a new commit.

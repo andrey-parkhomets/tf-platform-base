@@ -248,17 +248,25 @@ cd "$repo" || exit 1
 offenders=""
 for f in .github/workflows/*.yml; do
   o=$(awk -v file="$(basename "$f")" '
-    function flush() { if (job != "" && uses && !env) printf "%s:%s ", file, job; uses = 0; env = 0 }
+    function flush() { if (job != "" && uses && !env && !caller) printf "%s:%s ", file, job; uses = 0; env = 0; caller = 0 }
     /^jobs:/ { injobs = 1; next }
     injobs && /^  [A-Za-z0-9_-]+:[ \t]*$/ { flush(); job = $1; sub(/:$/, "", job); next }
     /^[ \t]*#/ { next }
     injobs && /^    environment:[ \t]*tf-ai-agent[ \t]*$/ { env = 1 }
+    injobs && /^    uses:/ { caller = 1 }
     injobs && /secrets\.(ANTHROPIC_API_KEY|AGENT_APP_ID|AGENT_APP_PRIVATE_KEY)/ { uses = 1 }
     END { flush() }' "$f")
   offenders="$offenders$o"
 done
 is "every job that reads the agent secrets declares environment: tf-ai-agent" "${offenders:-none}" none
-expect_rc "no workflow passes secrets down to a reusable workflow" 1 grep -rqE --include='*.yml' '^[[:space:]]+(ANTHROPIC_API_KEY|AGENT_APP_ID|AGENT_APP_PRIVATE_KEY):[[:space:]]*\$\{\{' .github/workflows
+undeclared=""
+for f in .github/workflows/reusable-*.yml; do
+  while IFS= read -r n; do
+    [[ -n "$n" ]] || continue
+    grep -qE "^      $n:[[:space:]]*\$" "$f" || undeclared="$undeclared $(basename "$f"):$n"
+  done < <(grep -vE '^[[:space:]]*#' "$f" | grep -oE 'secrets\.(ANTHROPIC_API_KEY|AGENT_APP_ID|AGENT_APP_PRIVATE_KEY)' | sed 's/secrets\.//' | sort -u)
+done
+is "a reusable workflow declares every secret it reads (a job there only sees what is declared)" "${undeclared:-none}" none
 
 echo "== Actions event policy documentation"
 cd "$repo" || exit 1
