@@ -55,8 +55,16 @@ gh secret delete AGENT_APP_PRIVATE_KEY
 The same can be done in the web interface: Settings, Environments, New environment `tf-ai-agent`, Deployment branches and tags,
 Selected branches and tags, add `main`; then add the three secrets under Environment secrets.
 
-Order matters. A job that declares an environment also sees repository secrets, so adding the environment secrets first changes
-nothing; deleting the repository-level ones is the step that closes the hole.
+Order matters, and it differs for the two kinds of job:
+
+- A plain job that declares the environment also sees repository secrets, so it keeps working while the environment is still empty.
+- A job inside a **reusable workflow** (`agent` and `commit` in `reusable-tf-ai-write`) sees only what the caller passes, and the
+  callers pass nothing. It reads the environment secrets or it gets empty values: the agent step fails with "ANTHROPIC_API_KEY ...
+  is required" and the commit step with "The 'client-id' (or deprecated 'app-id') input must be set". It was found this way
+  when the workflows were merged before the environment secrets were set.
+
+So: create the environment and set its three secrets **before** merging the workflow change (steps 1 and 2), check that a run works
+(step 3 of "Check it"), and only then delete the repository-level copies.
 
 ## Check it
 

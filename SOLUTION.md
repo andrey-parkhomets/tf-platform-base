@@ -72,7 +72,7 @@ One-time setup:
 1. An environment `tf-ai-agent` that only the default branch can use, holding three **environment secrets**: `ANTHROPIC_API_KEY`
    (read only by the jobs that run the model), and `AGENT_APP_ID` and `AGENT_APP_PRIVATE_KEY` of a GitHub App (read only by the jobs
    that push). Delete any repository-level copies: a repository secret can be read by a workflow edited on a branch, an environment
-   secret cannot. Commands, order and the check: `docs/secrets-environment.md`.
+   secret cannot. Set the environment secrets before the first run (jobs in reusable workflows read nothing else); commands, order and the check: `docs/secrets-environment.md`.
 2. The GitHub App for the commits (Settings, Developer settings, GitHub Apps, New): repository permissions **Contents: Read and
    write**, **Pull requests: Read and write**, no webhook. Install it on this repository only. Without its secrets the comment
    commands say so and stop before spending anything.
