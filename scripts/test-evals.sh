@@ -104,6 +104,15 @@ is "runs are ordered repeat by repeat, so a stop leaves complete earlier repeats
 is "every selected model, case and stage runs when the budget allows" "$(jq -s 'map(.model + ":" + .case) | sort | join(",")' "$tmp/r2/runs.jsonl" | tr -d '\\')" '"claude-haiku-5-5:c1,claude-sonnet-5-5:c1"'
 unset STUB_COST
 
+"$repo/evals/run.sh" --dry-run --models "claude-haiku-5-5 claude-sonnet-5-5" --stage both --repeats 2 --budget 99 --cases c1 >"$tmp/dry.txt"
+is "--dry-run prints the plan per model and stage, runs nothing and creates nothing" "$(grep -c 'claude-haiku-5-5 analysis: 2 run' "$tmp/dry.txt") $(grep -c 'claude-sonnet-5-5 writer: 2 run' "$tmp/dry.txt") $(grep -c 'nothing was run' "$tmp/dry.txt")" "1 1 1"
+expect_rc "--dry-run still refuses an estimate above the budget" 3 "$repo/evals/run.sh" --dry-run --models claude-sonnet-5-5 --repeats 3 --budget 1
+mkdir -p "$tmp/cgbin"; printf '#!/usr/bin/env bash\necho "$PWD" >>"$CG_LOG"\n' >"$tmp/cgbin/codegraph"; chmod +x "$tmp/cgbin/codegraph"
+CG_LOG="$tmp/cg.log" PATH="$tmp/cgbin:$PATH" EVAL_CODEGRAPH=1 "$lib/run-stage.sh" analysis "$tmp/cases/c1" claude-haiku-5-5 1 "$tmp/o/cg" >/dev/null
+is "with EVAL_CODEGRAPH=1 the index is built in the case's working tree before the agent runs" "$(grep -c 'eval-c1-analysis' "$tmp/cg.log" 2>/dev/null)" 1
+CG_LOG="$tmp/cg2.log" PATH="$tmp/cgbin:$PATH" "$lib/run-stage.sh" analysis "$tmp/cases/c1" claude-haiku-5-5 1 "$tmp/o/cg2" >/dev/null
+is "and not otherwise" "$(test -e "$tmp/cg2.log" && echo built || echo skipped)" skipped
+
 echo "== evals: score-analysis.sh"
 sa() { "$lib/score-analysis.sh" "$tmp/cases/c1" "$1"; }
 mkrun() { # mkrun <dir> <report json or -> [tests patch text]
