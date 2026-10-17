@@ -36,7 +36,7 @@ jobs:
     name: Detect changed directories
     runs-on: ubuntu-24.04
     # Repository variable AGENT_AUTO_ANALYSIS=0 switches the automatic run off.
-    if: ${{ vars.AGENT_AUTO_ANALYSIS != '0' && !github.event.pull_request.draft }}
+    if: ${{ (vars.AGENT_AUTO_ANALYSIS || '1') != '0' && !github.event.pull_request.draft }}
     permissions:
       contents: read
     outputs:
