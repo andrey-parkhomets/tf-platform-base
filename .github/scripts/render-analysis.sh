@@ -89,7 +89,7 @@ if [[ ${#suggest[@]} -gt 0 ]]; then
   echo "To have the tests written, verified without secrets and committed to this branch, comment (people with write access, one command per comment): ${suggest[*]}."
 elif [[ $valid -eq 0 ]]; then
   echo "The analysis did not complete, so there is no recommendation. \`agent coverage [dir]\` still writes tests on request."
-else
+elif [[ ${#auto[@]} -eq 0 ]]; then
   echo "No test work is recommended. \`agent coverage [dir]\` still writes tests on request."
 fi
 echo
