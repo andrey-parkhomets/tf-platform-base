@@ -5,8 +5,9 @@
 #
 #   env: MATRIX         detect-modules.sh output (the pull request's changed directories)
 #        REPORT_DIR     directory with <slug>.json analysis reports
-#        ENABLED        "0" switches automatic writing off
-#        LABELS         JSON array of the pull request's label names ("no-auto-pr-agent" opts out)
+#        DEFAULT_ON     "1" = automatic writing is on for every pull request (repository variable AGENT_AUTO_WRITE); anything
+#                       else = opt-in: only a pull request with the label "auto-pr-agent" gets it
+#        LABELS         JSON array of the pull request's label names. "no-auto-pr-agent" always wins (opt-out)
 #        AGENT_COMMITS  number of commits the agent has already made on this pull request
 #        MAX            cap on those commits
 #        HEAD_REF       branch name (same pattern the comment commands require)
@@ -16,8 +17,11 @@ set -euo pipefail
 : "${MATRIX:?}" "${REPORT_DIR:?}"
 out() { jq -cn --argjson m "$1" --arg r "$2" '{matrix: $m, reason: $r}'; }
 
-if [[ "${ENABLED:-1}" == 0 ]]; then out '[]' "automatic writing is switched off (AGENT_AUTO_WRITE=0)"; exit 0; fi
+# Automatic commits are opt-in: the branch moves under the author, so a person (or the repository, by variable) has to ask for it.
 if jq -e 'index("no-auto-pr-agent")' <<<"${LABELS:-[]}" >/dev/null; then out '[]' "the pull request has the no-auto-pr-agent label"; exit 0; fi
+if [[ "${DEFAULT_ON:-0}" != 1 ]] && ! jq -e 'index("auto-pr-agent")' <<<"${LABELS:-[]}" >/dev/null; then
+  out '[]' "automatic writing is opt-in: add the label auto-pr-agent to this pull request to let the agent commit tests by itself"; exit 0
+fi
 if [[ ! "${HEAD_REF:-}" =~ ^[A-Za-z0-9._/-]+$ ]]; then out '[]' "the branch name has characters the agent does not accept"; exit 0; fi
 commits=${AGENT_COMMITS:-0}; max=${MAX:-3}
 if [[ ! "$commits" =~ ^[0-9]+$ || ! "$max" =~ ^[0-9]+$ ]]; then out '[]' "could not count the agent's commits"; exit 0; fi

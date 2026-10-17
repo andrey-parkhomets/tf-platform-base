@@ -3,10 +3,11 @@ name: tf-ai-analysis
 # Runs automatically on every same-repository pull request that changes a module or stack. The agent reads the change and
 # DECIDES what it needs (tests needed / tests need an update / nothing to do / not testable offline), lists the tests it
 # would write and the findings reviewers should see, and posts that as one comment. The analysis itself writes nothing.
-# When it decides tests are needed (`tests_needed` / `tests_need_update`), the `write` job then calls the same reusable
+# When it decides tests are needed (`tests_needed` / `tests_need_update`) AND the pull request has opted in (label `auto-pr-agent`, or
+# the repository variable AGENT_AUTO_WRITE=1), the `write` job then calls the same reusable
 # workflow as `agent coverage` (reusable-tf-ai-write.yml): the agent writes, a job without secrets verifies, the App commits. Limits:
 # bot pushes never start this workflow (no loop), a push by a person starts it again (that is the re-arm), at most
-# AGENT_AUTO_WRITE_MAX agent commits per pull request, label `no-auto-pr-agent` or AGENT_AUTO_WRITE=0 opt out. People can also
+# AGENT_AUTO_WRITE_MAX agent commits per pull request, label `no-auto-pr-agent` opts out even when the repository is opted in. People can also
 # still ask by comment (`agent coverage`), and review the result like any commit (`agent remove <sha>` undoes it).
 #
 # Why `pull_request_target`: the model key is a secret, and a `pull_request` workflow runs the version of the workflow that
@@ -18,7 +19,8 @@ name: tf-ai-analysis
 # Same-repository pull requests only; forks, drafts and pushes by bots (the agent's own commits) are skipped.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
+    # `labeled`: adding the label auto-pr-agent to an analysed pull request starts the automatic write (other labels are ignored, see detect)
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - "modules/**"
       - "stacks/**"
@@ -44,9 +46,10 @@ jobs:
     # Repository variable AGENT_AUTO_ANALYSIS=0 switches the automatic run off.
     # Not for pushes by bots, above all the agent's own test commits: the model action refuses non-human actors, and re-analysing
     # the agent's output would be a loop. `mark-stale` below keeps the comment honest instead.
-    if: ${{ (vars.AGENT_AUTO_ANALYSIS || '1') != '0' && !github.event.pull_request.draft && github.event.sender.type != 'Bot' }}
+    if: ${{ (vars.AGENT_AUTO_ANALYSIS || '1') != '0' && !github.event.pull_request.draft && github.event.sender.type != 'Bot' && (github.event.action != 'labeled' || github.event.label.name == 'auto-pr-agent') }}
     permissions:
       contents: read
+      pull-requests: read
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       total: ${{ steps.matrix.outputs.total }}
@@ -68,6 +71,22 @@ jobs:
           if [ "$HEAD_REPO" = "$THIS_REPO" ]; then echo "same=true" >>"$GITHUB_OUTPUT"
           else echo "same=false" >>"$GITHUB_OUTPUT"; echo "::notice::Fork pull request: no automatic agent analysis."; fi
 
+      # Anyone with triage rights can add a label, which is less than the write access the comment commands need. The label that
+      # starts the automatic write therefore only counts when it was applied by someone with write access.
+      - name: Who applied the label?
+        id: labeler
+        if: github.event.action == 'labeled'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SENDER: ${{ github.event.sender.login }}
+        run: |
+          perm=$(gh api "repos/$REPO/collaborators/$SENDER/permission" --jq .permission 2>/dev/null || echo none)
+          case "$perm" in
+            admin|maintain|write) echo "ok=true" >>"$GITHUB_OUTPUT" ;;
+            *) echo "ok=false" >>"$GITHUB_OUTPUT"; echo "::notice::$SENDER has '$perm' permission; the label needs write access to start the agent." ;;
+          esac
+
       - name: Check out the pull request (as data)
         if: steps.repo.outputs.same == 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -83,9 +102,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SAME: ${{ steps.repo.outputs.same }}
+          LABELER_OK: ${{ steps.labeler.outputs.ok }}
         run: |
           all='[]'
-          if [ "$SAME" = true ]; then
+          if [ "$SAME" = true ] && [ "$LABELER_OK" != false ]; then
             all=$(cd pr && "$GITHUB_WORKSPACE/trusted/.github/scripts/detect-modules.sh")
           fi
           total=$(jq 'length' <<<"$all")
@@ -338,7 +358,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           MATRIX: ${{ needs.detect.outputs.matrix }}
           REPORT_DIR: dl
-          ENABLED: ${{ vars.AGENT_AUTO_WRITE || '1' }}
+          DEFAULT_ON: ${{ vars.AGENT_AUTO_WRITE || '0' }}
           MAX: ${{ vars.AGENT_AUTO_WRITE_MAX || '3' }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
