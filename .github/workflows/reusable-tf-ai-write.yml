@@ -10,7 +10,8 @@ name: reusable-tf-ai-write
 #   verify    no secrets   re-runs the patch the agent produced; only test paths are accepted
 #   commit    App token    pushes exactly the verified patch (no model, no Terraform)
 #   report    comment      posts the result
-# The three secrets are passed one by one by the caller (never all at once), and no job has two of them.
+# The secrets are not passed by the caller: the jobs that need them (`agent`, `commit`) declare the environment `tf-ai-agent`, which only
+# the default branch can use (docs/secrets-environment.md), and read them there. No job has two of them.
 on:
   workflow_call:
     inputs:
@@ -46,13 +47,6 @@ on:
         description: "name of a Checkov SARIF artifact the caller already produced; empty = scan here"
         type: string
         default: ""
-    secrets:
-      ANTHROPIC_API_KEY:
-        required: true
-      AGENT_APP_ID:
-        required: true
-      AGENT_APP_PRIVATE_KEY:
-        required: true
 
 permissions: {}
 
@@ -78,6 +72,7 @@ jobs:
   agent:
     name: Agent (${{ matrix.dir }})
     runs-on: ubuntu-24.04
+    environment: tf-ai-agent
     needs: [checkov]
     if: ${{ !cancelled() }}
     timeout-minutes: 20
@@ -353,6 +348,7 @@ jobs:
   commit:
     name: Commit the verified tests
     runs-on: ubuntu-24.04
+    environment: tf-ai-agent
     needs: [agent, verify]
     if: ${{ !cancelled() && needs.verify.result != 'skipped' }}
     permissions:

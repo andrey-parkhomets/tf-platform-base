@@ -8,7 +8,7 @@ name: tf-ai-commands
 # `issue_comment` always runs the workflow, scripts and agent definition from the DEFAULT branch, so a pull request cannot
 # change them. This file decides who may ask for what (`gate`), reverts commits (`remove`, no model) and calls
 # reusable-tf-ai-write.yml for the part that writes tests: model, verification without secrets, commit with the App token.
-# Three secrets, three kinds of job, no job has two of them:
+# The secrets live in the environment `tf-ai-agent` (only the default branch can use it). Three secrets, three kinds of job:
 #   ANTHROPIC_API_KEY          agent (in reusable-tf-ai-write.yml)   runs the model and Terraform on PR code, cannot write to the repository
 #   (none)                     verify (in reusable-tf-ai-write.yml)  runs Terraform on PR code, no secrets
 #   AGENT_APP_ID / _PRIVATE_KEY  commit (in reusable-tf-ai-write.yml), remove   push access; they never run Terraform or the model
@@ -104,25 +104,10 @@ jobs:
           echo "ok=true" >>"$GITHUB_OUTPUT"
           gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=eyes >/dev/null || true
 
-      # Fail early and cheaply when the push credentials are missing, before any model spend.
-      - name: Check that the push credentials exist
-        id: creds
-        if: steps.pr.outputs.ok == 'true'
-        env:
-          APP_ID: ${{ secrets.AGENT_APP_ID }}
-          APP_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
-        run: |
-          if [ -z "$APP_ID" ] || [ -z "$APP_KEY" ]; then
-            gh api "repos/$REPO/issues/$PR_NUMBER/comments" -f body="The agent cannot run: repository secrets \`AGENT_APP_ID\` and \`AGENT_APP_PRIVATE_KEY\` (the GitHub App that pushes the agent's commits) are not set. See SOLUTION.md." >/dev/null
-            echo "ok=false" >>"$GITHUB_OUTPUT"
-          else
-            echo "ok=true" >>"$GITHUB_OUTPUT"
-          fi
-
       - name: Final command
         id: final
         run: |
-          if [ "${{ steps.creds.outputs.ok }}" = true ]; then echo "command=${{ steps.parse.outputs.command }}" >>"$GITHUB_OUTPUT"
+          if [ "${{ steps.pr.outputs.ok }}" = true ]; then echo "command=${{ steps.parse.outputs.command }}" >>"$GITHUB_OUTPUT"
           else echo "command=" >>"$GITHUB_OUTPUT"; fi
 
       - name: Check out the pull request (as data)
@@ -183,12 +168,42 @@ jobs:
           path: threads.json
 
   # --------------------------------------------------------------------------------------------------------------------
+  # Fail early and cheaply when the push credentials are missing, before any model spend. The secrets live in the environment
+  # `tf-ai-agent`, which only the default branch can use (docs/secrets-environment.md); this job only tests that they are set.
+  creds:
+    name: Push credentials
+    needs: gate
+    if: ${{ needs.gate.outputs.command != '' }}
+    runs-on: ubuntu-24.04
+    environment: tf-ai-agent
+    permissions:
+      pull-requests: write
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - name: Check that the push credentials exist
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          APP_ID: ${{ secrets.AGENT_APP_ID }}
+          APP_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APP_ID" ] || [ -z "$APP_KEY" ]; then
+            gh api "repos/$REPO/issues/$PR_NUMBER/comments" -f body="The agent cannot run: the secrets \`AGENT_APP_ID\` and \`AGENT_APP_PRIVATE_KEY\` (the GitHub App that pushes the agent's commits) are not set in the environment \`tf-ai-agent\`. See SOLUTION.md." >/dev/null
+            echo "ok=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >>"$GITHUB_OUTPUT"
+          fi
+
+  # --------------------------------------------------------------------------------------------------------------------
   # `agent coverage` and `agent check comments`: the writing part lives in reusable-tf-ai-write.yml (reusable), so that any trigger can
   # use the same implementation. Secrets are passed explicitly, one by one.
   write:
     name: Agent
-    needs: gate
-    if: ${{ needs.gate.outputs.any == 'true' && (needs.gate.outputs.command == 'coverage' || needs.gate.outputs.command == 'check_comments') }}
+    needs: [gate, creds]
+    if: ${{ needs.creds.outputs.ok == 'true' && needs.gate.outputs.any == 'true' && (needs.gate.outputs.command == 'coverage' || needs.gate.outputs.command == 'check_comments') }}
     permissions:
       contents: read
       pull-requests: write
@@ -202,18 +217,15 @@ jobs:
       pr_number: ${{ format('{0}', github.event.issue.number) }}
       has_threads: ${{ needs.gate.outputs.has_threads }}
       requester: ${{ github.event.comment.user.login }}
-    secrets:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      AGENT_APP_ID: ${{ secrets.AGENT_APP_ID }}
-      AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
 
   # --------------------------------------------------------------------------------------------------------------------
   # `agent remove <sha>`: no model, no Terraform. Reverts a commit made by the agent, as a new commit.
   remove:
     name: Revert an agent commit
     runs-on: ubuntu-24.04
-    needs: gate
-    if: needs.gate.outputs.command == 'remove'
+    needs: [gate, creds]
+    if: ${{ needs.creds.outputs.ok == 'true' && needs.gate.outputs.command == 'remove' }}
+    environment: tf-ai-agent
     permissions:
       contents: read
       pull-requests: write

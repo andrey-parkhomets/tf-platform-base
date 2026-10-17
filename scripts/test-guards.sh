@@ -243,6 +243,23 @@ while IFS= read -r c; do
 done < <(grep -rhoE --include='*.yml' 'uses: \./\.github/workflows/[A-Za-z0-9._-]+\.yml' .github/workflows | sed 's#.*/##' | sort -u)
 is "every called reusable workflow exists" "${called_missing:-none}" none
 
+echo "== secrets are only used by jobs that declare the environment"
+cd "$repo" || exit 1
+offenders=""
+for f in .github/workflows/*.yml; do
+  o=$(awk -v file="$(basename "$f")" '
+    function flush() { if (job != "" && uses && !env) printf "%s:%s ", file, job; uses = 0; env = 0 }
+    /^jobs:/ { injobs = 1; next }
+    injobs && /^  [A-Za-z0-9_-]+:[ \t]*$/ { flush(); job = $1; sub(/:$/, "", job); next }
+    /^[ \t]*#/ { next }
+    injobs && /^    environment:[ \t]*tf-ai-agent[ \t]*$/ { env = 1 }
+    injobs && /secrets\.(ANTHROPIC_API_KEY|AGENT_APP_ID|AGENT_APP_PRIVATE_KEY)/ { uses = 1 }
+    END { flush() }' "$f")
+  offenders="$offenders$o"
+done
+is "every job that reads the agent secrets declares environment: tf-ai-agent" "${offenders:-none}" none
+expect_rc "no workflow passes secrets down to a reusable workflow" 1 grep -rqE --include='*.yml' '^[[:space:]]+(ANTHROPIC_API_KEY|AGENT_APP_ID|AGENT_APP_PRIVATE_KEY):[[:space:]]*\$\{\{' .github/workflows
+
 echo "== Actions event policy documentation"
 cd "$repo" || exit 1
 events=$(for f in .github/workflows/*.yml; do awk '/^on:/{f=1;next} f&&/^[a-z]/{exit} f&&/^  [a-z_]+:/{gsub(/[: ]/,"");print}' "$f"; done | sort -u | grep -v '^workflow_call$')

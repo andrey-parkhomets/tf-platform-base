@@ -34,7 +34,7 @@ reusable-tf-ai-write:  checkov (skipped if the caller scanned) ─► agent (mod
 | **Skills** | `.claude/skills/`: `tf-change-analysis`, `tf-test-writing`, `tf-test-verify`, `tf-review-findings`, and the vendored HashiCorp `terraform-test` (pinned, see its `PROVENANCE.md`) |
 | Workflows | `.github/workflows/`: entry workflows `tf-check`, `tf-ai-analysis`, `tf-ai-commands`, `tf-cache-warm`; reusable `reusable-checkov`, `reusable-tf-ai-write`. Names and rules: `.github/workflows/README.md` |
 | Deterministic scripts | `.github/scripts/` (command grammar, directory detection, path guard, test-quality check, verification, mutation check, commit and revert, review threads, comment rendering, automatic-write selection). Tested by `scripts/test-guards.sh` (seconds, no Docker) |
-| More detail | `docs/actions-policy.md` (Actions event policy to create), `docs/security-review.md`, `docs/model-comparison.md`, `docs/lessons-from-github-runs.md` |
+| More detail | `docs/secrets-environment.md` (where the secrets live), `docs/actions-policy.md` (Actions event policy to create), `docs/security-review.md`, `docs/model-comparison.md`, `docs/lessons-from-github-runs.md` |
 
 **How a run uses the skills.** `tf-change-analysis`: read the diff with a fixed command, ask CodeGraph who depends on the changed
 symbols, read the static test-quality result, decide per directory (`tests_needed`, `tests_need_update`, `no_change_needed`,
@@ -52,6 +52,7 @@ triage Checkov, add what a scanner cannot see, write the report JSON, including 
 | **The analysis runs on `pull_request_target`, read-only, without Terraform** | The model key must not be exposed to a workflow the PR can edit, so the workflow, agent and skills come from the default branch. The PR is checked out as data and never executed: Terraform is not installed in the job, tools are `Read/Grep/Glob/Skill`, `git diff/log/status`, `codegraph explore` and the report file, and a guard fails the job if any file changed. The comment is posted by a separate job that has the write token and no model | The analysis cannot see test results, so its test plan is a proposal, not a claim. Same-repository PRs only, no drafts, no bot pushes, at most 5 directories per run. Needs an Actions event policy after 2 November 2026 (`docs/actions-policy.md`) |
 | **Verified tests are committed to the PR branch** | Reviewable in the normal diff with inline comments, and the PR's own checks run on them | Needs a GitHub App (a `GITHUB_TOKEN` push would not start the checks): one more long-lived secret |
 | **The model never holds the write token**: `agent` (model key), `verify` (nothing), `commit` (App token) | A prompt can be ignored, a job boundary cannot. The pushed bytes are exactly the patch `verify` accepted, and `commit-patch.sh` re-checks the paths | Two extra jobs per run. The agent job still runs `terraform test` on PR code next to the key (see Limitations) |
+| **Secrets are environment secrets of `tf-ai-agent`, usable only from the default branch** | A repository secret is readable by any workflow in the repository, including one edited on a branch, so branch writers could print it. Tested: a `pull_request` workflow and a `push` workflow on a branch that declare the environment are refused before any step runs | Jobs that use a secret declare the environment and show as deployments on the PR. Someone with admin rights can still change the policy |
 | **Guards outside the model** | Only `(modules\|stacks)/*/tests/*.tftest.hcl` and `.tfmock.hcl` may change; no `command = apply`, no run without an assert, no constant condition, no assert that pins an insecure default (public network access, weak TLS, shared keys). The last one backs up the prompt rule "do not bless insecure behaviour"; it also runs on the analysis, where a failing check overrides "nothing to do" with `tests_need_update` | A legitimate fixture file in `tests/` needs the guard extended; the insecure-value list is a deny-list that grows by hand |
 | **Review loop by comment** (`agent check comments`) | Inline comments on the agent's test lines are the natural way to ask for a change. The agent replies and resolves the threads it addressed, and leaves the others open for a person | Only threads on `tests/` files from people with write access are read |
 | **`agent remove <sha>` is a `git revert`** | Non-destructive: no rewritten history, no force-push, reviewers' links keep working. Only commits authored by the App, inside the PR, touching only test files | The commit stays in history next to its revert |
@@ -68,11 +69,13 @@ triage Checkov, add what a scanner cannot see, write the report JSON, including 
 
 One-time setup:
 
-1. Repository secret `ANTHROPIC_API_KEY`. It is passed only to the steps that run the model.
-2. A GitHub App for the commits (Settings, Developer settings, GitHub Apps, New): repository permissions **Contents: Read and
-   write**, **Pull requests: Read and write**, no webhook. Install it on this repository only. Store its id as the secret
-   `AGENT_APP_ID` and the downloaded private key (the whole `.pem`) as `AGENT_APP_PRIVATE_KEY`. Without them the comment commands
-   say so and stop before spending anything.
+1. An environment `tf-ai-agent` that only the default branch can use, holding three **environment secrets**: `ANTHROPIC_API_KEY`
+   (read only by the jobs that run the model), and `AGENT_APP_ID` and `AGENT_APP_PRIVATE_KEY` of a GitHub App (read only by the jobs
+   that push). Delete any repository-level copies: a repository secret can be read by a workflow edited on a branch, an environment
+   secret cannot. Commands, order and the check: `docs/secrets-environment.md`.
+2. The GitHub App for the commits (Settings, Developer settings, GitHub Apps, New): repository permissions **Contents: Read and
+   write**, **Pull requests: Read and write**, no webhook. Install it on this repository only. Without its secrets the comment
+   commands say so and stop before spending anything.
 3. Merge to the default branch. `issue_comment` and `pull_request_target` workflows and `.claude/` are read from there. Optionally
    run `tf-cache-warm` once.
 4. **Before 2 November 2026:** create an Actions event policy that allows the events the workflows use, `pull_request_target`
@@ -146,8 +149,9 @@ so the agent must not bless insecure behaviour (for example `ftps_state = "AllAl
   before the model and enforces its result, but a test that is wrong in other ways is only found by the verify job.
 - The agent job runs `terraform test` on pull request code next to the model key, now also without a person typing a command. The
   key is removed from the environment of those processes (subprocess scrub plus bubblewrap) and `GITHUB_TOKEN` is read-only, but
-  `data "external"` can run a script at plan time. The boundary that matters: same repository, write permission to open the PR, and
-  no write token in that job. Accepted for this repository.
+  `data "external"` can run a script at plan time. The secrets are not reachable from a workflow edited on a branch (environment
+  secrets, above), so the boundary that matters is a pull request from a branch by someone with write access, whose Terraform is run
+  next to the key. Accepted for now; the planned change is that the agent never runs Terraform and `verify` does.
 - Fork pull requests get no agent run, by design. A branch that moves during a run (the push fails, nothing is forced) has not been
   exercised on GitHub.
 - The agent can still write weak or wrong tests. The guards catch structure and known insecure assertions, the mutation check
