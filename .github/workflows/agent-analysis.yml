@@ -11,7 +11,7 @@ name: Terraform test agent analysis
 #   detect    no secrets    git diff on the PR, validated directory names
 #   analyze   model key     read-only tools, no Terraform installed, no write token; a guard fails the job if any file changed
 #   post      write token   comment only; no model, no PR code, renders the report with a script from the default branch
-# Same-repository pull requests only; forks and drafts are skipped.
+# Same-repository pull requests only; forks, drafts and pushes by bots (the agent's own commits) are skipped.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -36,7 +36,9 @@ jobs:
     name: Detect changed directories
     runs-on: ubuntu-24.04
     # Repository variable AGENT_AUTO_ANALYSIS=0 switches the automatic run off.
-    if: ${{ (vars.AGENT_AUTO_ANALYSIS || '1') != '0' && !github.event.pull_request.draft }}
+    # Not for pushes by bots, above all the agent's own test commits: the model action refuses non-human actors, and re-analysing
+    # the agent's output would be a loop. `mark-stale` below keeps the comment honest instead.
+    if: ${{ (vars.AGENT_AUTO_ANALYSIS || '1') != '0' && !github.event.pull_request.draft && github.event.sender.type != 'Bot' }}
     permissions:
       contents: read
     outputs:
@@ -303,3 +305,29 @@ jobs:
             const mine = comments.find(c => c.user.type === 'Bot' && c.body.startsWith(marker));
             if (mine) await github.rest.issues.updateComment({owner, repo, comment_id: mine.id, body});
             else await github.rest.issues.createComment({owner, repo, issue_number, body});
+
+  # A bot (above all the agent, after `agent coverage`) pushed to the branch: the analysis comment describes an older head.
+  # Say so; no model, no PR code.
+  mark-stale:
+    name: Mark the analysis as out of date
+    runs-on: ubuntu-24.04
+    if: ${{ github.event.sender.type == 'Bot' && github.event.pull_request.head.repo.full_name == github.repository && github.event.action == 'synchronize' }}
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const marker = '<!-- tf-test-agent-analysis -->';
+            const {owner, repo} = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {owner, repo, issue_number});
+            const mine = comments.find(c => c.user.type === 'Bot' && c.body.startsWith(marker));
+            if (!mine) return;
+            const sha = process.env.HEAD_SHA.slice(0, 7);
+            const note = `> **Possibly out of date:** a bot pushed \`${sha}\` after this analysis (for example the agent's tests from \`agent coverage\`; see its own comment). The next push by a person runs the analysis again.\n\n`;
+            const rest = mine.body.replace(/^> \*\*Possibly out of date:\*\*.*\n\n/m, '');
+            const body = rest.replace(marker + '\n', marker + '\n' + note);
+            if (body !== mine.body) await github.rest.issues.updateComment({owner, repo, comment_id: mine.id, body});
