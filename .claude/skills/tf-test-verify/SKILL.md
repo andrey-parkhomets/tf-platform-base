@@ -34,6 +34,7 @@ assumed that only a real provider would compute.
 | `quality: ... fail`, `::error` lines | the static check rejected a run | fix exactly the run it names; if it says "pins an insecure default", remove the assert and report the default as a finding |
 | `Unsupported argument`, `Reference to undeclared`, `Unsupported block type` | wrong attribute, resource address or run name | fix the test |
 | `Invalid value for variable` in a run that should pass | the test variables break a validation | fix the variables |
+| the quality section lists `compares with a [..] or {..} literal`, or a failing assertion has the warning `LHS and RHS values are of different types` | a collection attribute compared with `==` to a literal, which is always false | rewrite the condition as in the table in `tf-test-writing` (`contains`, `one`, `length`, an index, or `toset`/`tolist`/`tomap` on the literal). `tolist(x) == [..]` is still wrong |
 | `Test assertion failed` and your expectation is right | the module disagrees with its intended contract | keep the assertion, add a finding; do not edit the module |
 | `Test assertion failed` and your expectation was a guess | you asserted a value the mock generated | assert configuration instead |
 | `unexpected failure` with `expect_failures` | the validation did not trigger | check the condition on the right variable |
