@@ -19,7 +19,7 @@ done
   echo "agent_file_head=$(head -2 .claude/agents/tf-test-agent.md 2>/dev/null | tail -1)"
   echo "prompt<<"; echo "$prompt"; echo ">>"
 } >>"${STUB_LOG:-/dev/null}"
-[[ "${STUB_FAIL:-0}" == 1 ]] && exit 1
+[[ "${STUB_FAIL:-0}" == 1 ]] && { echo "stub: boom (unknown option)" >&2; exit 1; }
 # shellcheck disable=SC2016  # the backticks are literal characters of the prompt
 slug=$(sed -n 's/.*(slug `\([^`]*\)`).*/\1/p' <<<"$prompt" | head -1)
 # shellcheck disable=SC2016
