@@ -23,9 +23,11 @@ on:
       - "modules/**"
       - "stacks/**"
 
-# A new push replaces the analysis of the old one, so spend follows the head of the branch, not every push.
+# A new push by a person replaces the run for the old one, so spend follows the head of the branch, not every push.
+# Pushes by bots (the agent's own commit) are a separate group: otherwise the commit the agent pushes would cancel the very
+# run that is committing it, before its report is posted.
 concurrency:
-  group: tf-agent-analysis-${{ github.event.pull_request.number }}
+  group: tf-agent-analysis-${{ github.event.pull_request.number }}-${{ github.event.sender.type == 'Bot' && 'bot' || 'person' }}
   cancel-in-progress: true
 
 permissions: {}
