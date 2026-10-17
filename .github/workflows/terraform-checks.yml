@@ -85,8 +85,7 @@ jobs:
           python-version: "3.12"
           cache: pip # caching pip dependencies
           cache-dependency-path: .github/requirements.txt
-      # pre-commit/action runs `pip install pre-commit` without a version. Installing the pinned
-      # version from requirements.txt first makes that step a no-op, so the version stays under our control.
+      # pre-commit is installed directly, at the version pinned in requirements.txt.
       - run: python -m pip install -r .github/requirements.txt
       - name: Restore provider cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -105,11 +104,19 @@ jobs:
           output-file: README.md
           fail-on-diff: true
           git-push: false
-      # Same hooks as `pre-commit install` locally, on the files changed in the pull request only.
-      # The action also caches the hook environments (~/.cache/pre-commit).
-      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+      # Hook environments (cloned hook repositories, virtualenvs) come from the cache that `Warm caches` writes on main.
+      # A pull request only restores it; on a miss pre-commit installs them itself.
+      - name: Restore pre-commit hook environments
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          extra_args: --from-ref ${{ github.event.pull_request.base.sha }} --to-ref ${{ github.event.pull_request.head.sha }}
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ runner.arch }}-py3.12-${{ hashFiles('.pre-commit-config.yaml', '.github/requirements.txt') }}
+      # Same hooks as `pre-commit install` locally, on the files changed in the pull request only.
+      - name: Run the hooks
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: pre-commit run --show-diff-on-failure --color=always --from-ref "$BASE_SHA" --to-ref "$HEAD_SHA"
 
   checkov:
     name: Checkov
