@@ -47,9 +47,13 @@ Write `.agent/report/<slug>.json` where `<slug>` is the directory with `/` repla
   "skills_used": ["tf-change-analysis", "terraform-test", "tf-test-writing", "tf-test-verify", "tf-review-findings"],
   "commands_run": ["terraform test: 6 passed, 0 failed"],
   "tests": [{"file": "modules/example/tests/main.tftest.hcl", "runs": ["run_name"]}],
+  "threads": [{"id": "<id from .agent/threads.json>", "outcome": "addressed | declined", "reply": "one or two sentences"}],
   "not_covered": ["what these tests cannot show"],
   "findings": []
 }
 ```
+
+`threads` is only for mode `revise`; use the `id` exactly as in `.agent/threads.json`. The pipeline replies on the thread and
+resolves it only when the outcome is `addressed` and the verified tests were committed.
 
 Keep text plain (no HTML, no @mentions, no links except to files in this repository).

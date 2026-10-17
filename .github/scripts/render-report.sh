@@ -7,12 +7,13 @@
 #   .agent/verify/<slug>.json|.log   deterministic verification per directory
 #   .agent/checkov.sarif             Checkov results (SARIF, produced by the checkov action)
 #   $JOB_RESULTS                     JSON {"lint":"success",...} from the workflow
+# Env: REPO, SERVER_URL (links), RUN_URL. Reads .agent/commits.json ([{dir, sha}]) for the commits the pipeline made.
 # Writes the markdown to stdout. All agent-authored text is passed through `clean`:
 # stripped of HTML and @mentions, and truncated, because it comes from an LLM that has read untrusted input.
 set -euo pipefail
 
 : "${MATRIX:?}"
-marker='<!-- tf-test-agent -->'
+marker="<!-- tf-test-agent-run ${RUN_ID:-} -->"
 run_url=${RUN_URL:-}
 
 clean() { # clean <max chars>
@@ -61,9 +62,9 @@ for i in $(seq 0 $((count - 1))); do
     if [[ $skipped == agent_definition_not_on_base ]]; then
       echo "**Decision:** none. The agent was skipped: the agent definition (\`.claude/agents/tf-test-agent.md\`) is not on the base branch yet, and the action only loads agent definitions from the base branch."
     elif [[ $agent_result == failure ]]; then
-      echo "**Decision:** none. The agent step failed for this run (see the workflow run for the reason, for example a turn limit). Tests it had already written are still verified below; nothing is pushed to this branch."
+      echo "**Decision:** none. The agent step failed for this run (see the workflow run for the reason, for example a turn limit). Tests it had already written are still verified below."
     else
-      echo "**Decision:** no agent report was produced for this directory (the agent is skipped for fork and bot pull requests)."
+      echo "**Decision:** no agent report was produced for this directory (the agent runs only for same-repository pull requests)."
     fi
     echo
   fi
@@ -90,21 +91,24 @@ for i in $(seq 0 $((count - 1))); do
   fi
   echo
 
-  patch=".agent/patch/$slug.patch"
-  if [[ -s "$patch" ]]; then
-    echo "<details><summary>Tests created or updated (verified patch, $(grep -c '^+++ ' "$patch") file(s))</summary>"
+  commit=$(jq -r --arg d "$dir" '[.[] | select(.dir == $d)][0].sha // empty' .agent/commits.json 2>/dev/null || true)
+  if [[ -n "$commit" && "$commit" =~ ^[0-9a-f]{7,40}$ ]]; then
+    echo "**Committed to this branch:** [\`${commit:0:7}\`](${SERVER_URL:-https://github.com}/${REPO:-}/commit/$commit) (verified tests only; the checks on the pull request run on it as on any other commit)."
     echo
     if [[ -f "$report" ]]; then
       jq -r '(.tests // [])[:10][] | "- `\(.file)`: " + ((.runs // []) | join(", "))' "$report" | clean 1500
       echo
     fi
-    echo "Nothing was pushed to this branch. To take the tests: \`gh run download ${RUN_ID:-<run id>} -n tf-tests-$slug\` and \`git apply tests.patch\`."
+    echo "Review it like any commit and comment on lines of the test file. \`agent check comments\` asks me to act on unresolved threads, \`agent remove ${commit:0:7}\` reverts it."
     echo
-    echo "~~~~~~diff"
-    grep -v '^~~~' "$patch" | head -c 20000 | tr -d '\r'
+  elif [[ -f "$report" ]]; then
+    echo "**Committed to this branch:** nothing."
     echo
-    echo "~~~~~~"
-    echo "</details>"
+  fi
+
+  if [[ -f "$report" && $(jq '(.threads // []) | length' "$report" 2>/dev/null || echo 0) -gt 0 ]]; then
+    echo "Review threads:"
+    jq -r '(.threads // [])[:20][] | "- \(.outcome // "?"): \(.reply // "")"' "$report" | clean 2000
     echo
   fi
 

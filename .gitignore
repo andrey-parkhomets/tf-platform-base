@@ -11,3 +11,4 @@ crash.log
 .agent/
 .pre-commit-cache/
 .codegraph/
+*.pem

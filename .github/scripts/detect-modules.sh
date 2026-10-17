@@ -1,29 +1,24 @@
 #!/usr/bin/env bash
-# Builds the matrix of changed Terraform directories (modules/<name>, stacks/<name>).
+# Builds the matrix of Terraform directories (modules/<name>, stacks/<name>) to work on.
 #
 # Input, either:
-#   CHANGED_DIRS   output of tj-actions/changed-files with dir_names=true, dir_names_max_depth=2
-#                  (a JSON array, or whitespace-separated). This is the normal path.
-#   BASE_SHA, HEAD_SHA   fallback without third-party actions: derives the same list from `git diff`.
+#   BASE_SHA, HEAD_SHA   the directories changed between the two commits (`git diff`, no third-party action).
+#   DIRS                 an explicit whitespace-separated list, used by `agent coverage <dir>`.
 # Output: a JSON array on stdout:
 #   [{"dir":"modules/x","kind":"module","slug":"modules-x","has_tests":true}]
 # Every directory is validated against a strict pattern before it is used anywhere, because the
-# names come from the pull request. Paths are only ever handled as data.
+# names come from the pull request or from a comment. Paths are only ever handled as data.
 set -euo pipefail
 
-if [[ -n "${CHANGED_DIRS:-}" ]]; then
-  CHANGED_DIRS=${CHANGED_DIRS//\\\"/\"}      # tolerate an escaped JSON string (escape_json=true)
-  if jq -e 'type == "array"' <<<"$CHANGED_DIRS" >/dev/null 2>&1; then
-    dirs=$(jq -r '.[]' <<<"$CHANGED_DIRS")
-  else
-    dirs=$(printf '%s\n' "$CHANGED_DIRS" | tr ' ' '\n')
-  fi
+if [[ -n "${DIRS:-}" ]]; then
+  dirs=$(printf '%s\n' "$DIRS" | tr -s '[:space:]' '\n')
 else
-  : "${BASE_SHA:?set CHANGED_DIRS, or BASE_SHA and HEAD_SHA}" "${HEAD_SHA:?}"
-  dirs=$(git diff --name-only "$BASE_SHA...$HEAD_SHA" | awk -F/ '
+  : "${BASE_SHA:?set DIRS, or BASE_SHA and HEAD_SHA}" "${HEAD_SHA:?}"
+  # -z keeps unusual file names intact; ignore docs and lock files (they need no tests).
+  dirs=$(git diff --name-only -z --diff-filter=ACMRD "$BASE_SHA...$HEAD_SHA" | tr '\0' '\n' | awk -F/ '
     NF >= 3 && ($1 == "modules" || $1 == "stacks") {
       f = $NF
-      if (f ~ /\.md$/ || f == ".terraform.lock.hcl") next   # same ignore list as the workflow
+      if (f ~ /\.md$/ || f == ".terraform.lock.hcl") next
       print $1 "/" $2
     }')
 fi

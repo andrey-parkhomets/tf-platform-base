@@ -1,0 +1,256 @@
+name: Terraform checks
+
+# Deterministic checks for every pull request that changes Terraform: lint, Checkov, and the existing tests of the changed
+# directories (fmt, init, validate, test, mutation check). No model and no secrets here. The agent that writes tests
+# is started by a comment, see agent-commands.yml.
+
+# `pull_request`, not `pull_request_target`: the workflow that runs is the one in the PR's
+# merge commit, from the same repository, with a read-only token unless a job asks for more.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "modules/**"
+      - "stacks/**"
+      - ".github/workflows/terraform-checks.yml"
+      - ".github/scripts/**"
+      - ".claude/**"
+
+concurrency:
+  group: terraform-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+env:
+  TF_VERSION: "1.15.1"
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  detect:
+    name: Detect changed modules
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      any: ${{ steps.matrix.outputs.any }}
+      same_repo: ${{ steps.matrix.outputs.same_repo }}
+      dirs: ${{ steps.matrix.outputs.dirs }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build matrix
+        id: matrix
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          matrix=$(.github/scripts/detect-modules.sh)
+          {
+            echo "matrix=$matrix"
+            echo "dirs=$(jq -r 'map(.dir) | join(",")' <<<"$matrix")"
+            echo "any=$([ "$matrix" = "[]" ] && echo false || echo true)"
+            # Fork pull requests get no secrets, and their code must not run next to one.
+            echo "same_repo=$([ "$HEAD_REPO" = "$THIS_REPO" ] && echo true || echo false)"
+          } >>"$GITHUB_OUTPUT"
+          echo "$matrix" | jq .
+
+  lint:
+    name: Lint (pre-commit)
+    runs-on: ubuntu-24.04
+    needs: detect
+    if: needs.detect.outputs.any == 'true'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Use the plugin cache
+        run: echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >>"$GITHUB_ENV"
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+          cache: pip # caching pip dependencies
+          cache-dependency-path: .github/requirements.txt
+      # pre-commit/action runs `pip install pre-commit` without a version. Installing the pinned
+      # version from requirements.txt first makes that step a no-op, so the version stays under our control.
+      - run: python -m pip install -r .github/requirements.txt
+      - name: Restore provider cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+          restore-keys: |
+            tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-
+      - run: mkdir -p "$HOME/.terraform.d/plugin-cache"
+      # Module documentation: fails if README.md is not what terraform-docs generates (nothing is pushed).
+      - uses: terraform-docs/gh-actions@6de6da0cefcc6b4b7a5cbea4d79d97060733093c # v1.4.1
+        with:
+          working-dir: ${{ needs.detect.outputs.dirs }}
+          config-file: .terraform-docs.yml
+          output-method: inject
+          output-file: README.md
+          fail-on-diff: true
+          git-push: false
+      # Same hooks as `pre-commit install` locally, on the files changed in the pull request only.
+      # The action also caches the hook environments (~/.cache/pre-commit).
+      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+        with:
+          extra_args: --from-ref ${{ github.event.pull_request.base.sha }} --to-ref ${{ github.event.pull_request.head.sha }}
+
+  checkov:
+    name: Checkov
+    runs-on: ubuntu-24.04
+    needs: detect
+    if: needs.detect.outputs.any == 'true'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Scan
+        uses: bridgecrewio/checkov-action@6f26dc90000b74feb589a906cdfae540f5119895 # v12.3134.0
+        with:
+          directory: .
+          config_file: .checkov.yaml
+          soft_fail: true
+          output_format: cli,sarif
+          output_file_path: console,results.sarif
+          skip_results_upload: true
+          download_external_modules: false
+          # Private Terraform modules (this repo only uses local ../../modules sources, so this stays off).
+          # To scan stacks that call modules from other private repositories, turn downloads on and give
+          # the action a token that can read those repositories:
+          #
+          #   download_external_modules: true
+          #   github_pat: ${{ secrets.TF_MODULES_READ_PAT }}   # fine-grained, contents:read on the module repos only
+          # and, if the sources are `git::https://github.com/...` URLs, add to this step:
+          #   env:
+          #     GITHUB_OVERRIDE_URL: true   # makes the action rewrite github.com URLs to carry the token
+          #
+          # Rules if you enable it: (1) keep `if: needs.detect.outputs.same_repo == 'true'` on this job, a fork
+          # must never run next to the token; (2) prefer a short-lived GitHub App token
+          # (actions/create-github-app-token) over a long-lived PAT; (3) `terraform init` in lint/verify/agent
+          # fetches the same modules, so those jobs need the same git URL rewrite, and the agent job must NOT
+          # get the token (`git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf
+          # "https://github.com/"` in the lint/verify jobs only); (4) offline `terraform test` cannot
+          # fetch modules, so vendor or pin them or mock the module call in the test.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: checkov
+          path: results.sarif
+          if-no-files-found: warn
+
+  verify:
+    name: Verify (${{ matrix.dir }})
+    runs-on: ubuntu-24.04
+    needs: detect
+    if: ${{ needs.detect.outputs.any == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    # No secrets in this job: it executes Terraform on code from the pull request.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Use the plugin cache
+        run: echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >>"$GITHUB_ENV"
+      - name: Restore provider cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+          restore-keys: |
+            tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-
+      - name: Static test quality checks
+        env:
+          DIR: ${{ matrix.dir }}
+        run: .github/scripts/check-test-quality.sh "$DIR"
+      - name: fmt, init, validate, test
+        env:
+          DIR: ${{ matrix.dir }}
+        run: |
+          mkdir -p "$HOME/.terraform.d/plugin-cache"
+          .github/scripts/verify-module.sh "$DIR"
+      - name: Show log
+        if: always()
+        env:
+          SLUG: ${{ matrix.slug }}
+        run: cat ".agent/verify/${SLUG}.log" || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: verify-${{ matrix.slug }}
+          path: .agent/verify
+          include-hidden-files: true
+
+  report:
+    name: Report to the pull request
+    runs-on: ubuntu-24.04
+    needs: [detect, lint, checkov, verify]
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: "verify-*"
+          path: .agent/dl
+        continue-on-error: true
+      - name: Render comment
+        env:
+          MATRIX: ${{ needs.detect.outputs.matrix }}
+          JOB_RESULTS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p .agent/verify
+          for d in .agent/dl/verify-*; do [ -d "$d" ] && cp "$d"/* .agent/verify/ 2>/dev/null || true; done
+          JOB_RESULTS=$(jq -c 'map_values(.result)' <<<"$JOB_RESULTS")
+          export JOB_RESULTS
+          [ "$(jq -r .detect <<<"$JOB_RESULTS")" = "success" ] || MATRIX='[]'
+          export MATRIX
+          .github/scripts/render-hint.sh >.agent/comment.md
+          cat .agent/comment.md >>"$GITHUB_STEP_SUMMARY"
+      - name: Post or update the comment
+        if: ${{ needs.detect.outputs.any == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('.agent/comment.md', 'utf8');
+            const marker = '<!-- tf-test-agent -->';
+            const {owner, repo} = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {owner, repo, issue_number});
+            const mine = comments.find(c => c.user.type === 'Bot' && c.body.startsWith(marker));
+            if (mine) await github.rest.issues.updateComment({owner, repo, comment_id: mine.id, body});
+            else await github.rest.issues.createComment({owner, repo, issue_number, body});
+      - name: Fail the check if verification failed
+        if: ${{ needs.verify.result == 'failure' || needs.lint.result == 'failure' }}
+        run: exit 1
