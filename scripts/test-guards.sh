@@ -485,16 +485,15 @@ echo '{"dir":"modules/a","decision":"tests_needed"}' >rep/modules-a.json
 echo '{"dir":"modules/b","decision":"no_change_needed"}' >rep/modules-b.json
 echo '{"dir":"modules/OTHER","decision":"tests_needed"}' >rep/modules-c.json      # dir does not match the slug's directory
 echo '{"dir":"modules/d","decision":"tests_need_update"}' >rep/modules-d.json
-# the helper defaults to an opted-in pull request (label auto-pr-agent); the opt-in tests below set LABELS themselves
-sel() { MATRIX="$m" REPORT_DIR=rep HEAD_REF=feat/x AGENT_COMMITS=${AGENT_COMMITS:-0} MAX=${MAX:-3} LABELS=${LABELS-'["auto-pr-agent"]'} DEFAULT_ON=${DEFAULT_ON:-0} "$scripts/select-auto-write.sh"; }
-is "selects only needs-tests decisions with matching dir" "$(sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a,modules/d"
-is "no-auto-pr-agent label opts out" "$(LABELS='["x","no-auto-pr-agent"]' sel | jq -r '(.matrix|length|tostring) + ":" + .reason')" "0:the pull request has the no-auto-pr-agent label"
-is "no label, no repository default: nothing is written, and the reason says how to opt in" "$(LABELS='[]' sel | jq -r '(.matrix|length|tostring) + ":" + (.reason|test("opt-in.*auto-pr-agent")|tostring)')" "0:true"
-is "unrelated labels do not opt in" "$(LABELS='["bug","docs"]' sel | jq -r '.matrix|length')" 0
-is "the auto-pr-agent label opts in" "$(LABELS='["auto-pr-agent"]' sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a,modules/d"
-is "the repository variable opts every pull request in" "$(LABELS='[]' DEFAULT_ON=1 sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a,modules/d"
-is "any other value of the variable is not an opt-in" "$(LABELS='[]' DEFAULT_ON=true sel | jq -r '.matrix|length')" 0
-is "no-auto-pr-agent wins over the label and over the repository default" "$(LABELS='["auto-pr-agent","no-auto-pr-agent"]' DEFAULT_ON=1 sel | jq -r '.matrix|length')" 0
+# the helper models the shipped default: no labels and no repository switch, i.e. automatic writing is on
+sel() { MATRIX="$m" REPORT_DIR=rep HEAD_REF=feat/x AGENT_COMMITS=${AGENT_COMMITS:-0} MAX=${MAX:-3} LABELS=${LABELS-'[]'} DEFAULT_ON=${DEFAULT_ON-} "$scripts/select-auto-write.sh"; }
+is "default: no label and no switch, automatic writing is ON; only needs-tests decisions with a matching dir are selected" "$(sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a,modules/d"
+is "unrelated labels change nothing" "$(LABELS='["bug","docs"]' sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a,modules/d"
+is "no-auto-pr-agent switches it off for the pull request, and the reason says how to re-enable" "$(LABELS='["x","no-auto-pr-agent"]' sel | jq -r '(.matrix|length|tostring) + ":" + (.reason|test("remove the label")|tostring)')" "0:true"
+is "AGENT_AUTO_WRITE=0 switches it off for the repository, and the reason names the label that opts a pull request back in" "$(DEFAULT_ON=0 sel | jq -r '(.matrix|length|tostring) + ":" + (.reason|test("AGENT_AUTO_WRITE=0.*auto-pr-agent")|tostring)')" "0:true"
+is "with the repository switched off, the label auto-pr-agent opts a pull request back in" "$(DEFAULT_ON=0 LABELS='["auto-pr-agent"]' sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a,modules/d"
+is "only the exact value 0 switches it off (a typo does not silently disable it)" "$(DEFAULT_ON=false sel | jq -r '.matrix|length') $(DEFAULT_ON=off sel | jq -r '.matrix|length')" "2 2"
+is "no-auto-pr-agent wins over auto-pr-agent and over the repository default" "$(LABELS='["auto-pr-agent","no-auto-pr-agent"]' DEFAULT_ON=1 sel | jq -r '.matrix|length')" 0
 is "cap reached selects nothing" "$(AGENT_COMMITS=3 sel | jq -r '.matrix|length')" 0
 is "cap leaves room for one directory" "$(AGENT_COMMITS=2 sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a"
 is "unknown commit count selects nothing" "$(AGENT_COMMITS=x sel | jq -r '.matrix|length')" 0

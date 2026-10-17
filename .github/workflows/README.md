@@ -38,7 +38,7 @@ GitHub only reads `*.yml` / `*.yaml` in this folder, so this file is documentati
 | File | Starts on | Calls | What it does |
 |---|---|---|---|
 | `tf-check.yml` | `pull_request` | `reusable-checkov` | lint, Checkov, `terraform test` of changed directories, one hint comment. No model, no secrets |
-| `tf-ai-analysis.yml` | `pull_request_target` | `reusable-checkov`, `reusable-tf-ai-write` | the agent decides what the change needs (read-only); writes tests when it decided they are needed and the PR has the label `auto-pr-agent` (or `AGENT_AUTO_WRITE=1`) |
+| `tf-ai-analysis.yml` | `pull_request_target` (also `labeled` / `unlabeled` for the two policy labels) | `reusable-checkov`, `reusable-tf-ai-write` | the agent decides what the change needs (read-only), then writes tests when it decided they are needed, unless switched off (`no-auto-pr-agent` label, or `AGENT_AUTO_WRITE=0`) |
 | `tf-ai-commands.yml` | `issue_comment` | `reusable-tf-ai-write` | `agent coverage`, `agent check comments`, `agent remove <sha>` |
 | `tf-cache-warm.yml` | `push` (main), `schedule`, `workflow_dispatch` | | provider and CodeGraph caches |
 | `reusable-checkov.yml` | `workflow_call` | | one Checkov scan of the whole repository (SARIF artifact); with `base_ref` also a scan of the base commit (`<artifact>-base`), so `scope-sarif.sh` can scope and classify the findings |

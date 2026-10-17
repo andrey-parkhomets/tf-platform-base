@@ -2,7 +2,7 @@
 
 **Do this before 2 November 2026.** From that date GitHub blocks `pull_request_target` workflows in public repositories that have no
 Actions event policy of their own (a "default policy"). `tf-ai-analysis.yml` uses that event, so without a policy the automatic
-analysis, and with it the opt-in automatic writing of tests, stops. Until then the Actions page shows a warning such as
+analysis, and with it the automatic writing of tests, stops. Until then the Actions page shows a warning such as
 *"Workflow execution policy warning (evaluate mode)"* on that workflow. The comment commands (`agent coverage` ...) and the
 deterministic checks are other events and keep working either way.
 
@@ -32,7 +32,7 @@ Allowed events, one row per trigger used in `.github/workflows/`:
 | Event | Used by | What breaks if it is missing |
 |---|---|---|
 | `pull_request` | `tf-check.yml` | lint, Checkov, verify and the hint comment on every PR |
-| `pull_request_target` | `tf-ai-analysis.yml` | the automatic analysis and the opt-in automatic writing of tests |
+| `pull_request_target` | `tf-ai-analysis.yml` | the automatic analysis and the automatic writing of tests |
 | `issue_comment` | `tf-ai-commands.yml` | `agent coverage`, `agent check comments`, `agent remove` |
 | `push` | `tf-cache-warm.yml` | the provider and CodeGraph caches are no longer refreshed on `main` |
 | `schedule` | `tf-cache-warm.yml` | the scheduled cache refresh |

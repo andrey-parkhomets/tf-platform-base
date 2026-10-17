@@ -3,12 +3,12 @@ name: tf-ai-analysis
 # Runs automatically on every same-repository pull request that changes a module or stack. The agent reads the change and
 # DECIDES what it needs (tests needed / tests need an update / nothing to do / not testable offline), lists the tests it
 # would write and the findings reviewers should see, and posts that as one comment. The analysis itself writes nothing.
-# When it decides tests are needed (`tests_needed` / `tests_need_update`) AND the pull request has opted in (label `auto-pr-agent`, or
-# the repository variable AGENT_AUTO_WRITE=1), the `write` job then calls the same reusable
-# workflow as `agent coverage` (reusable-tf-ai-write.yml): the agent writes, a job without secrets verifies, the App commits. Limits:
-# bot pushes never start this workflow (no loop), a push by a person starts it again (that is the re-arm), at most
-# AGENT_AUTO_WRITE_MAX agent commits per pull request, label `no-auto-pr-agent` opts out even when the repository is opted in. People can also
-# still ask by comment (`agent coverage`), and review the result like any commit (`agent remove <sha>` undoes it).
+# When it decides tests are needed (`tests_needed` / `tests_need_update`), the `write` job then calls the same reusable workflow as
+# `agent coverage` (reusable-tf-ai-write.yml): the agent writes, a job without secrets verifies, the App commits. This is the default,
+# and it stays on until somebody switches it off on purpose: label `no-auto-pr-agent` on a pull request, or the repository variable
+# AGENT_AUTO_WRITE=0 (a pull request can then opt back in with the label `auto-pr-agent`). Limits: bot pushes never start this
+# workflow (no loop), a push by a person starts it again (that is the re-arm), at most AGENT_AUTO_WRITE_MAX agent commits per pull
+# request. People can also still ask by comment (`agent coverage`), and review the result like any commit (`agent remove <sha>` undoes it).
 #
 # Why `pull_request_target`: the model key is a secret, and a `pull_request` workflow runs the version of the workflow that
 # is in the PR, so the PR could change it. Here the workflow, the agent definition, the skills and the scripts all come from
@@ -19,8 +19,9 @@ name: tf-ai-analysis
 # Same-repository pull requests only; forks, drafts and pushes by bots (the agent's own commits) are skipped.
 on:
   pull_request_target:
-    # `labeled`: adding the label auto-pr-agent to an analysed pull request starts the automatic write (other labels are ignored, see detect)
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    # `labeled` / `unlabeled`: the two labels that change the policy start (or re-start) the automatic write: adding `auto-pr-agent`
+    # or removing `no-auto-pr-agent`. Every other label is ignored (see `detect`).
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     paths:
       - "modules/**"
       - "stacks/**"
@@ -46,7 +47,7 @@ jobs:
     # Repository variable AGENT_AUTO_ANALYSIS=0 switches the automatic run off.
     # Not for pushes by bots, above all the agent's own test commits: the model action refuses non-human actors, and re-analysing
     # the agent's output would be a loop. `mark-stale` below keeps the comment honest instead.
-    if: ${{ (vars.AGENT_AUTO_ANALYSIS || '1') != '0' && !github.event.pull_request.draft && github.event.sender.type != 'Bot' && (github.event.action != 'labeled' || github.event.label.name == 'auto-pr-agent') }}
+    if: ${{ (vars.AGENT_AUTO_ANALYSIS || '1') != '0' && !github.event.pull_request.draft && github.event.sender.type != 'Bot' && (github.event.action != 'labeled' || github.event.label.name == 'auto-pr-agent') && (github.event.action != 'unlabeled' || github.event.label.name == 'no-auto-pr-agent') }}
     permissions:
       contents: read
       pull-requests: read
@@ -71,11 +72,11 @@ jobs:
           if [ "$HEAD_REPO" = "$THIS_REPO" ]; then echo "same=true" >>"$GITHUB_OUTPUT"
           else echo "same=false" >>"$GITHUB_OUTPUT"; echo "::notice::Fork pull request: no automatic agent analysis."; fi
 
-      # Anyone with triage rights can add a label, which is less than the write access the comment commands need. The label that
-      # starts the automatic write therefore only counts when it was applied by someone with write access.
-      - name: Who applied the label?
+      # Anyone with triage rights can add or remove a label, which is less than the write access the comment commands need. A label
+      # change that starts the automatic write therefore only counts when it was made by someone with write access.
+      - name: Who changed the label?
         id: labeler
-        if: github.event.action == 'labeled'
+        if: github.event.action == 'labeled' || github.event.action == 'unlabeled'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -368,7 +369,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           MATRIX: ${{ needs.detect.outputs.matrix }}
           REPORT_DIR: dl
-          DEFAULT_ON: ${{ vars.AGENT_AUTO_WRITE || '0' }}
+          DEFAULT_ON: ${{ vars.AGENT_AUTO_WRITE || '1' }}
           MAX: ${{ vars.AGENT_AUTO_WRITE_MAX || '3' }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}

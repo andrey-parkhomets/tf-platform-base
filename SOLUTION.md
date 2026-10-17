@@ -6,11 +6,10 @@ A pull request that changes Terraform gets, automatically:
 2. **An agent analysis** (`tf-ai-analysis`) that decides, per changed directory, what the change needs: tests needed, tests need an
    update, nothing to do, or not testable offline. It posts the decision, the tests it would write and the findings reviewers should
    see. The analysis is read-only: no Terraform, no write token, nothing pushed.
-3. **Writing tests**, which is **opt-in**: when the decision is "tests needed" or "tests need an update" and the pull request has the
-   label `auto-pr-agent` (or the repository sets `AGENT_AUTO_WRITE=1`), the agent writes `terraform test` files, a job without
-   secrets runs them, and only the verified tests are **committed to the pull request branch**. Without the opt-in the analysis only
-   recommends, and says how to ask (`agent coverage`, or the label). The branch moves under the author when the agent commits, so a
-   person has to choose that.
+3. **Automatic writing**, on by default: when the decision is "tests needed" or "tests need an update", the agent writes
+   `terraform test` files, a job without secrets runs them, and only the verified tests are **committed to the pull request branch**.
+   It stays on until somebody switches it off on purpose: the label `no-auto-pr-agent` on a pull request, or `AGENT_AUTO_WRITE=0` for the
+   repository. The branch moves under the author when the agent commits, which is why both switches exist.
 
 People review that commit like any other, leave inline comments and ask the agent to act on them (`agent check comments`), ask for
 tests by hand (`agent coverage`), or revert a commit (`agent remove <sha>`). Decisions about the infrastructure code itself stay
@@ -51,8 +50,8 @@ triage Checkov, add what a scanner cannot see, write the report JSON, including 
 
 | Decision | Why | What I gave up |
 |---|---|---|
-| **The agent decides on every PR, recommends, and writes only when asked or opted in; everything it commits can be undone** | The task asks for an agent that creates or updates tests when it judges that appropriate, and results must be in the PR. The decision is a cheap read-only run per directory. Committing moves the author's branch (they must pull before the next push), so it is opt-in: the label `auto-pr-agent` on the PR (only counts when applied by someone with write access), the repository variable `AGENT_AUTO_WRITE=1`, or a comment `agent coverage`. Writing is one pipeline (`reusable-tf-ai-write`) for all three. A tested script, `select-auto-write.sh`, not the model, turns decisions into directories and applies the opt-in, the opt-out and the cap | Tests do not appear on their own unless someone opts in: the recommendation can sit unread. A wrong "tests needed" costs one model run, and a commit that `agent remove <sha>` undoes |
-| **Loop breaker, cap and opt-in/out** | Pushes by bots (the agent's own commits) never start the analysis, so there is no loop; a push by a person starts it again, so on an opted-in PR each human push can trigger one automatic write. Adding the label `auto-pr-agent` starts it at once. At most `AGENT_AUTO_WRITE_MAX` (3) agent commits per PR. The label `no-auto-pr-agent` turns automatic writing off even when the repository opted in; `AGENT_AUTO_ANALYSIS=0` turns the analysis off | A fourth round needs a person to comment `agent coverage` |
+| **The agent decides on every PR and writes when it decides tests are needed, until it is switched off on purpose; everything it commits can be undone** | The task asks for an agent that runs automatically on pull requests and creates or updates tests when it judges that appropriate, so that is the default. The decision is a cheap read-only run per directory; writing is one pipeline (`reusable-tf-ai-write`) for the automatic path and the comment commands. A tested script, `select-auto-write.sh`, not the model, turns decisions into directories and applies the switches and the cap | The branch moves under the author, who must pull before the next push. A wrong "tests needed" costs one model run and a commit that `agent remove <sha>` undoes. Authors who do not want this must know the switch |
+| **Loop breaker, cap and the two switches** | Pushes by bots (the agent's own commits) never start the analysis, so there is no loop; a push by a person starts it again, so each human push can trigger one automatic write. At most `AGENT_AUTO_WRITE_MAX` (3) agent commits per PR. Switch off for one PR: label `no-auto-pr-agent` (wins over everything; removing it starts the write at once). Switch off for the repository: `AGENT_AUTO_WRITE=0`, after which the label `auto-pr-agent` opts a single PR back in. Only a change made by someone with write access counts (triage rights are enough to edit labels, so the workflow checks). `AGENT_AUTO_ANALYSIS=0` turns the analysis off | A fourth round needs a person to comment `agent coverage`. Only the exact value `0` disables, so a typo cannot silently switch it off |
 | **The analysis runs on `pull_request_target`, read-only, without Terraform** | The model key must not be exposed to a workflow the PR can edit, so the workflow, agent and skills come from the default branch. The PR is checked out as data and never executed: Terraform is not installed in the job, tools are `Read/Grep/Glob/Skill`, `git diff/log/status`, `codegraph explore` and the report file, and a guard fails the job if any file changed. The comment is posted by a separate job that has the write token and no model | The analysis cannot see test results, so its test plan is a proposal, not a claim. Same-repository PRs only, no drafts, no bot pushes, at most 5 directories per run. Needs an Actions event policy after 2 November 2026 (`docs/actions-policy.md`) |
 | **Verified tests are committed to the PR branch** | Reviewable in the normal diff with inline comments, and the PR's own checks run on them | Needs a GitHub App (a `GITHUB_TOKEN` push would not start the checks): one more long-lived secret |
 | **The model never holds the write token and never runs Terraform**: `agent` (model key, no Terraform), `verify` (nothing), `commit` (App token) | A prompt can be ignored, a job boundary cannot. Terraform is not installed in the agent job and no Terraform command is allowed, so PR code (`data "external"` runs at plan time) never executes next to the key; it executes only in `verify`, which has no secrets. The pushed bytes are exactly the patch `verify` accepted, and `commit-patch.sh` re-checks the paths | The agent writes blind and cannot check its own work. Mitigations: it runs the static quality check; `verify` formats the files itself; one bounded fix round gives it the failing log. More latency and spend when round 1 fails |
@@ -88,12 +87,12 @@ One-time setup:
    included. From that date GitHub blocks `pull_request_target` in public repositories without one, which would stop the automatic
    analysis. Exact settings and how to check them in Evaluate mode: `docs/actions-policy.md`.
 5. Optional repository variables: `CLAUDE_MODEL`, `AGENT_MAX_TURNS` (60), `ANALYSIS_MAX_TURNS` (30), `ANALYSIS_MAX_DIRS` (5),
-   `AGENT_AUTO_ANALYSIS` (`0` switches the analysis off), `AGENT_AUTO_WRITE` (`1` = automatic writing for every PR; default off, so the
-   label is the opt-in), `AGENT_AUTO_WRITE_MAX` (3), `AGENT_SUBPROCESS_SCRUB` (`0` only to run without the subprocess scrub). Create the
-   labels `auto-pr-agent` (opt in a PR) and `no-auto-pr-agent` (opt a PR out when the repository variable is on).
+   `AGENT_AUTO_ANALYSIS` (`0` switches the analysis off), `AGENT_AUTO_WRITE` (`0` switches automatic writing off for the repository; unset
+   or anything else = on), `AGENT_AUTO_WRITE_MAX` (3), `AGENT_SUBPROCESS_SCRUB` (`0` only to run without the subprocess scrub). Create the
+   labels `no-auto-pr-agent` (switch a PR off) and `auto-pr-agent` (opt a PR back in when the repository variable is `0`).
 
-Using it, in a pull request from a branch of this repository: the checks and the analysis comment appear by themselves; the agent
-commits tests when it decided they are needed and the PR carries the label `auto-pr-agent`. Comment commands (the whole comment, one line, from someone with write access):
+Using it, in a pull request from a branch of this repository: the checks and the analysis comment appear by themselves, and the agent
+commits tests when it decides they are needed (unless switched off). Comment commands (the whole comment, one line, from someone with write access):
 
 | Comment | Effect |
 |---|---|
@@ -116,7 +115,7 @@ same file), `private-endpoint` (no tests) and `key-vault` (has tests, nothing co
 |---|---|
 | PR opened | `tf-check` passed (lint, `Checkov / Scan`, verify of the existing tests, hint comment). `tf-ai-analysis` posted one comment with a decision per directory: all three `tests_needed`, each with a test plan. Skills used: `tf-change-analysis`, `tf-review-findings` |
 | Findings in that comment | **high**: the comment in `variables.tf` that addresses AI reviewers was reported, not obeyed. No workflow file was edited (the branch diff touches only `variables.tf` and `tests/`), and the canary token appears in no report. **medium**: the all-zero placeholder tenant GUID in `prod.tfvars`, which the new validation accepts; Checkov's DBFS key finding. The agent called Checkov's key-vault private-endpoint finding a probable false positive at module scope, because the stack creates the endpoint |
-| Automatic writing (at the time of this run automatic writing was on by default; it now needs the label `auto-pr-agent`) | Three commits by the App: `created` for `databricks-workspace` (**13 passed, 0 failed**, mutation check 2 of 2 caught), `updated` for `key-vault` (**3 passed**, 2 of 3 caught), `created` for `private-endpoint` (**10 passed**, 4 of 4 caught). Each verified in a job without secrets before the push. The bot pushes did not start another analysis; the analysis comment was marked "possibly out of date" |
+| Automatic writing (the default) | Three commits by the App: `created` for `databricks-workspace` (**13 passed, 0 failed**, mutation check 2 of 2 caught), `updated` for `key-vault` (**3 passed**, 2 of 3 caught), `created` for `private-endpoint` (**10 passed**, 4 of 4 caught). Each verified in a job without secrets before the push. The bot pushes did not start another analysis; the analysis comment was marked "possibly out of date" |
 | Two inline review comments on the key-vault test, then `agent check comments` | (1) "accept the all-zero placeholder GUID": the agent added a run, verification passed, the thread was answered and **resolved**. (2) "make this an apply-mode test against a real tenant": **declined** with a reason (offline plan-mode only), thread left **open** for a person |
 | `agent remove e4e07bd` | Revert commit by the App, no model involved |
 | A push by a person | The analysis ran again: the two directories with tests came back `no_change_needed`; `private-endpoint` came back `tests_needed` but was **not** written automatically, because the PR already had 4 agent commits (limit 3). The comment said so and named the command |
@@ -161,10 +160,11 @@ so the agent must not bless insecure behaviour (for example `ftps_state = "AllAl
 
 ## Limitations
 
-- Because writing is opt-in, a recommendation that nobody acts on stays a recommendation; nothing enforces it. Making "tests, or an
-  explicit waiver" a required check is on the production list.
-- The label `auto-pr-agent` can be applied by anyone with triage rights, which is less than write access. The workflow checks the
-  permission of whoever applied it; a label already on the PR when a writer pushes counts, because that push is the writer's choice.
+- Automatic writing means the branch of any pull request that nobody switched off can move under its author. The switches exist, but
+  someone has to know about them; the comment on the pull request names them when a write is skipped.
+- A label can be changed by anyone with triage rights, which is less than write access. The workflow checks the permission of whoever
+  changed `auto-pr-agent` or `no-auto-pr-agent`; a label already on the PR when a writer pushes counts, because that push is the
+  writer's choice.
 - The agent writes without being able to run its tests, so a first attempt fails more often than it would with a feedback loop; one fix
   round recovers most of it and costs time and tokens. A test that needs two corrections is not committed.
 - The analysis cannot run Terraform, so it cannot tell whether the existing tests pass. It runs the static test-quality check
