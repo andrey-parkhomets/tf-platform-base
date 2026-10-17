@@ -117,6 +117,14 @@ same file), `private-endpoint` (no tests) and `key-vault` (has tests, nothing co
 | A push by a person | The analysis ran again: the two directories with tests came back `no_change_needed`; `private-endpoint` came back `tests_needed` but was **not** written automatically, because the PR already had 4 agent commits (limit 3). The comment said so and named the command |
 | `agent coverage modules/private-endpoint` | The manual command is not capped: tests written again, **10 passed**, 3 of 4 mutants caught |
 
+**The agent without Terraform, scratch pull request 39** (closed after the test; run through a throw-away caller, with that one branch
+allowed in the environment for the duration). The existing test file had a run that referenced a resource that does not exist. Run
+39064154879: the agent, with no Terraform available, corrected that run and added seven more; `verify` formatted the files and
+ran them: **8 passed, 0 failed**, mutation check 3 of 4, committed; the broken run was reported as a finding. Run 39064426134, a
+second test file with a plausible but false assertion (`is_manual_connection == true`, the module sets `false`): round 1 failed
+verification (9 passed, 1 failed), round 2 read the log, kept the assertion, reported a medium finding that the test and the module
+disagree, and nothing was committed. That is the intended outcome of "do not turn an assertion around to make it green".
+
 **Quality override, pull request 17** (`databricks-workspace`): the agent once pinned an insecure default in a test
 (`public_network_access_enabled == true` on its default) and raised no finding. `check-test-quality.sh` fails such a run: the verify
 job went red with "asserts public_network_access_enabled == true on its default", the analysis answered `tests_need_update`, and
@@ -147,6 +155,8 @@ so the agent must not bless insecure behaviour (for example `ftps_state = "AllAl
 
 ## Limitations
 
+- The agent writes without being able to run its tests, so a first attempt fails more often than it would with a feedback loop; one fix
+  round recovers most of it and costs time and tokens. A test that needs two corrections is not committed.
 - The analysis cannot run Terraform, so it cannot tell whether the existing tests pass. It runs the static test-quality check
   before the model and enforces its result, but a test that is wrong in other ways is only found by the verify job.
 - Terraform on pull request code runs only in the `verify` job, which has no secrets and a read-only token. `data "external"` can

@@ -301,6 +301,9 @@ echo '{"dir":"modules/a","round":2,"ok":true,"results":{"quality":"pass","fmt":"
 echo '{"dir":"modules/a","round":1,"ok":false,"results":{"quality":"pass","validate":"fail"},"summary":"","mutation":{}}' >.agent/verify/modules-a.round1.json
 out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-report.sh")
 is "the comment says round 1 failed on validate and a fix round followed" "$(grep -c 'Round 1 failed verification (validate)' <<<"$out")" 1
+echo '{"dir":"modules/a","round":2,"ok":false,"results":{"quality":"pass","test":"fail"},"summary":"Failure! 9 passed, 1 failed.","mutation":{}}' >.agent/verify/modules-a.json
+out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-report.sh")
+is "a failed second round is not described as a fix" "$(grep -c 'fixed the tests' <<<"$out") $(grep -c 'failed as well' <<<"$out")" "0 1"
 
 echo "== secrets are only used by jobs that declare the environment"
 cd "$repo" || exit 1
