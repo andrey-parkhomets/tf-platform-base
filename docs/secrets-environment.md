@@ -25,6 +25,10 @@ refused with the job showing zero steps:
 A job that does **not** declare the environment cannot read the secrets at all, as long as no repository-level copy exists.
 That is why the repository-level secrets must be **deleted**, not just copied.
 
+After the repository-level copies were deleted, a workflow on a branch that does not declare the environment printed
+`key=0 app_id=0 app_key=0` (lengths of the three values). The comment commands and the automatic analysis ran successfully on
+the environment secrets alone (`agent check comments` and a push by a person, both after the deletion).
+
 In the workflows, only the jobs that use a secret declare `environment: tf-ai-agent`: `analyze` (tf-ai-analysis), `agent` and
 `commit` (reusable-tf-ai-write), `creds` and `remove` (tf-ai-commands).
 
