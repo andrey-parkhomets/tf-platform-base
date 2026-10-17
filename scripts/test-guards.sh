@@ -206,6 +206,21 @@ echo '{"dir":"modules/a","decision":"no_change_needed","rationale":"names are pe
 out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-analysis.sh")
 is "placeholder kept, tags neutralised" "$(grep -c 'pe-‹name›' <<<"$out") $(grep -c '<script>' <<<"$out")" "1 0"
 
+echo "== apply-quality-to-report.sh"
+r="$tmp/aq"; mkdir -p "$r"; cd "$r" || exit 1
+printf '%s\n' '::error file=modules/a/tests/main.tftest.hcl::run "x" asserts public_network_access_enabled == true on its default. Do not pin it' '::error file=modules/a/tests/main.tftest.hcl::run "y" has no assert' >q.txt
+: >q_ok.txt
+echo '{"dir":"modules/a","decision":"no_change_needed","rationale":"covered"}' >r1.json
+echo '{"dir":"modules/a","decision":"tests_needed","rationale":"none exist"}' >r2.json
+echo '{"dir":"modules/a","decision":"skipped","rationale":"stack"}' >r3.json
+o=$("$scripts/apply-quality-to-report.sh" r1.json q.txt)
+is "failing check turns no_change_needed into tests_need_update" "$(jq -r .decision <<<"$o")" tests_need_update
+is "rationale leads with the first error, keeps the model text" "$(jq -r '(.rationale|startswith("The static test-quality check fails on the existing tests (2 error(s)): run \"x\" asserts")) and (.rationale|endswith("covered"))' <<<"$o")" true
+is "skipped is overridden too" "$("$scripts/apply-quality-to-report.sh" r3.json q.txt | jq -r .decision)" tests_need_update
+is "tests_needed is left alone" "$("$scripts/apply-quality-to-report.sh" r2.json q.txt | jq -r .decision)" tests_needed
+is "passing check changes nothing" "$("$scripts/apply-quality-to-report.sh" r1.json q_ok.txt | jq -r .decision)" no_change_needed
+is "missing quality file changes nothing" "$("$scripts/apply-quality-to-report.sh" r1.json nofile.txt | jq -r .decision)" no_change_needed
+
 echo "== select-auto-write.sh"
 r="$tmp/sel"; mkdir -p "$r/rep"; cd "$r" || exit 1
 m='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"},{"dir":"modules/c","slug":"modules-c"},{"dir":"modules/d","slug":"modules-d"}]'

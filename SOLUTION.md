@@ -158,9 +158,9 @@ code, so the agent is told not to bless insecure behaviour (for example `ftps_st
 
 ## Limitations
 
-- The analysis cannot run Terraform or the test-quality check, so it can say `no_change_needed` while the verify job fails on
-  existing tests (seen on pull request 17). The failing check is the signal; making the analysis run the (static) check is the
-  next change.
+- The analysis cannot run Terraform, so it cannot tell whether the existing tests pass. It does run the static test-quality check
+  (a script, nothing from the PR executes) before the model, and a failing check overrides `no_change_needed` / `skipped` with
+  `tests_need_update` (`apply-quality-to-report.sh`). Seen on pull request 17, where the analysis said "nothing to do" while verify failed.
 - The automatic analysis (`agent-analysis.yml`) has not run on GitHub yet: it is new, it lives on the default branch only after
   merge, and `pull_request_target` workflows are read from there. The renderer is tested locally (`scripts/test-guards.sh`) and the
   workflow passes `actionlint`; the first real run is the next example to add. It also does not receive the Checkov SARIF.
