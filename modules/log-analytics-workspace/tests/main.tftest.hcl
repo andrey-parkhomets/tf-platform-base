@@ -65,6 +65,19 @@ run "retention_accepts_the_upper_bound" {
   }
 }
 
+run "retention_accepts_the_lower_bound" {
+  command = plan
+
+  variables {
+    retention_in_days = 30
+  }
+
+  assert {
+    condition     = azurerm_log_analytics_workspace.this.retention_in_days == 30
+    error_message = "30 days must be accepted as the minimum retention."
+  }
+}
+
 run "rejects_retention_below_30_days" {
   command = plan
 
