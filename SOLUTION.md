@@ -25,7 +25,7 @@ comment ──► agent-commands.yml
 
 | What | Where |
 |---|---|
-| Workflows | `.github/workflows/terraform-checks.yml` (every PR, no secrets, no model), `agent-analysis.yml` (every same-repo PR, model, read-only), `agent-commands.yml` (comment commands), `cache-warm.yml` (caches, `main` only) |
+| Workflows | `.github/workflows/terraform-checks.yml` (every PR, no secrets, no model), `agent-analysis.yml` (every same-repo PR, model, read-only), `agent-commands.yml` (comment commands: gate, revert, and a call to) `agent-write.yml` (reusable: agent, verify, commit, report), `cache-warm.yml` (caches, `main` only) |
 | **Custom agent** | `.claude/agents/tf-test-agent.md`: role, hard rules, three modes (`analyze`, `coverage`, `revise`), tool list |
 | **Skills** | `.claude/skills/`: `tf-change-analysis`, `tf-test-writing`, `tf-test-verify`, `tf-review-findings`, and the vendored HashiCorp `terraform-test` (pinned, see `PROVENANCE.md`) |
 | Deterministic scripts (tested by `scripts/test-guards.sh`) | `.github/scripts/`: `parse-command.sh`, `detect-modules.sh`, `guard-paths.sh`, `check-test-quality.sh`, `verify-module.sh`, `mutation-check.sh`, `commit-patch.sh`, `revert-commit.sh`, `collect-threads.sh`, `resolve-threads.sh`, `render-hint.sh`, `render-report.sh`, `render-analysis.sh` |
