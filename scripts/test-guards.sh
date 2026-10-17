@@ -180,6 +180,11 @@ out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-analysi
 is "unknown decision is not echoed or acted on" "$(grep -c 'rm -rf' <<<"$out") $(grep -c 'agent coverage modules/a' <<<"$out")" "0 0"
 is "no valid report never says 'no test work is recommended'" "$(grep -c 'No test work is recommended' <<<"$out") $(grep -c 'did not complete' <<<"$out")" "0 1"
 
+echo "== workflows"
+cd "$repo" || exit 1
+expect_rc "no workflow inherits all secrets" 1 grep -rq 'secrets: inherit' .github/workflows
+is "the write path has one implementation" "$(grep -lE 'claude-code-action' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "agent-analysis.yml agent-write.yml "
+
 echo
 [[ $fail -eq 0 ]] && echo "all guard tests passed" || echo "SOME GUARD TESTS FAILED"
 exit $fail
