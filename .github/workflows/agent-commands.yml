@@ -54,7 +54,7 @@ jobs:
       COMMENT_ID: ${{ github.event.comment.id }}
     steps:
       # Default branch: the trusted scripts. Never the pull request's copy.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: trusted
           sparse-checkout: .github/scripts
@@ -132,7 +132,7 @@ jobs:
 
       - name: Check out the pull request (as data)
         if: steps.final.outputs.command == 'coverage' || steps.final.outputs.command == 'check_comments'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ steps.pr.outputs.head_sha }}
           path: pr
@@ -196,7 +196,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.gate.outputs.head_sha }}
           persist-credentials: false
@@ -232,7 +232,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.gate.outputs.head_sha }}
           fetch-depth: 0
@@ -241,7 +241,7 @@ jobs:
       # The agent definition, the skills and the helper scripts come from the default branch, never from the pull request.
       # `.agent/` is git-ignored, so this copy does not show up as a change.
       - name: Trusted agent definition and scripts (default branch)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: .agent/trusted
           sparse-checkout: |
@@ -426,11 +426,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.gate.outputs.head_sha }}
           persist-credentials: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: .agent/trusted
           sparse-checkout: .github/scripts
@@ -520,11 +520,11 @@ jobs:
           echo "name=${SLUG}[bot]" >>"$GITHUB_OUTPUT"
           echo "email=${id}+${SLUG}[bot]@users.noreply.github.com" >>"$GITHUB_OUTPUT"
       # The token is kept in .git/config by this checkout so that `git push` works. Nothing from the pull request is executed here.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.gate.outputs.head_sha }}
           token: ${{ steps.app.outputs.token }}
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: .agent/trusted
           sparse-checkout: .github/scripts
@@ -633,7 +633,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: trusted
           sparse-checkout: .github/scripts
@@ -698,12 +698,12 @@ jobs:
           id=$(gh api "users/${SLUG}%5Bbot%5D" --jq .id)
           echo "name=${SLUG}[bot]" >>"$GITHUB_OUTPUT"
           echo "email=${id}+${SLUG}[bot]@users.noreply.github.com" >>"$GITHUB_OUTPUT"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.gate.outputs.head_sha }}
           fetch-depth: 0
           token: ${{ steps.app.outputs.token }}
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: .agent/trusted
           sparse-checkout: .github/scripts
