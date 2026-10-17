@@ -33,6 +33,19 @@ run "creates_one_role_assignment_per_reader" {
   }
 }
 
+run "accepts_the_all_zero_placeholder_tenant_id" {
+  command = plan
+
+  variables {
+    tenant_id = "00000000-0000-0000-0000-000000000000"
+  }
+
+  assert {
+    condition     = azurerm_key_vault.this.tenant_id == "00000000-0000-0000-0000-000000000000"
+    error_message = "The all-zero placeholder GUID must pass tenant_id validation."
+  }
+}
+
 run "rejects_a_tenant_id_that_is_not_a_guid" {
   command = plan
 
