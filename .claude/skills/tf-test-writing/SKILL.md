@@ -51,6 +51,9 @@ repo does not allow).
 If the module's current behaviour is insecure (for example `ftps_state = "AllAllowed"`), do **not** write a
 test that blesses it as correct, and do not write a failing test for the desired state either.
 Write tests for what the module is supposed to guarantee, and put the insecure setting in the findings.
+`check-test-quality.sh` enforces this for a list of settings (public network access, TLS below 1.2, `AllAllowed` FTPS, shared keys, and so on):
+a run that asserts the insecure value without setting that input itself fails the check. Testing that an input you set is
+*honoured* is fine; pinning the *default* is not.
 
 This also applies to **defaults**. Do not write a test that asserts an unsafe default value (for example
 `public_network_access_enabled == true` when the variable is not set); that pins the risk in place and makes a later fix
