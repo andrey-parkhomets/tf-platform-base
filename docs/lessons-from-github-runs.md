@@ -13,3 +13,22 @@ Two points worth keeping: the verify job and the report still produced a correct
 comment and a pass/fail for the module), which is the property the split into separate jobs is for; and the Claude Code subprocess scrub
 works on a GitHub-hosted runner without any special runner setup beyond installing bubblewrap and socat.
 
+## What the automatic path and the comment commands showed (pull requests 7, 17, 22, 31)
+
+Each row was found on a real run, fixed in its own pull request, and is now covered by a guard test or a documented rule.
+
+| Seen on a real run | Cause | Fix |
+|---|---|---|
+| The analysis job was skipped on its first run | `vars.X != '0'` is false when `X` is unset: `null` and `'0'` both coerce to 0 | the variable has a default (`vars.X \|\| '1'`), like the others |
+| The agent produced a complete analysis but the comment said "no valid report" | `download-artifact` with a pattern that matches one artifact extracts it without its own folder | `merge-multiple: true`; the comment says "did not complete" when no report is valid |
+| The same, on another PR: the report was never saved | the agent used `Write`, the allow-list only had `Edit` | both tools allowed for the report path only |
+| A red check after the agent's own commit | `claude-code-action` refuses a bot as the actor, and the commit re-triggered the analysis | the analysis is skipped for bot pushes; a no-model job marks the comment "possibly out of date" |
+| The report comment of an automatic write was missing | the bot's push started a second run in the same concurrency group and cancelled the run that was committing | concurrency is keyed by who pushed |
+| The agent reviewed without the diff | it ran `git -C <dir> diff A B`, which `Bash(git diff*)` does not match | the prompt gives the exact command; `git -C <workspace>` is allowed for diff/log/status |
+| `pe-<name>` appeared as `pe- name ` | the comment sanitizer replaced `<` and `>` with spaces | they become `‹` and `›` |
+| A test pinned `public_network_access_enabled == true` as the default, with no finding | the rule was only in the prompt | `check-test-quality.sh` rejects such a run; the analysis enforces the check's result |
+| "Writing tests now" followed by "No test work is recommended" | the closing line ignored automatic writing | it is printed only when nothing was selected |
+
+The pattern in the table: the failures were in the plumbing around the model (expression semantics, artifact layout, permissions,
+event loops), not in the model's judgement, and the one judgement failure (the pinned insecure default) is now a deterministic check.
+
