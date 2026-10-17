@@ -38,9 +38,10 @@ with this table instead of the one in step 5 (the verbs say what *should* happen
 | Only comments, formatting, README or lock files changed, or existing `run` blocks already cover it (name them) | `no_change_needed` |
 | A stack with no logic of its own, or behaviour that cannot be tested offline | `skipped`, say what a human should verify |
 
-Also fill `affected_callers` (stacks or modules that call the directory, from CodeGraph) and `test_plan`: one line per `run`
-block you would write (what it asserts, and whether it uses `expect_failures`). Be specific enough that a reviewer can say
-"yes" or "no" to the plan. Do not claim a test passes: you ran nothing.
+Also fill `affected_callers` (stacks or modules that call the directory, from CodeGraph) and `test_plan`. For `tests_needed` and
+`tests_need_update` it is the plan: one line per `run` block you would write. For `no_change_needed` it is the existing `run`
+blocks that already cover the change, one line each. For `skipped` leave it empty. Each line says what the `run` block asserts and whether it uses `expect_failures`; be
+specific enough that a reviewer can say "yes" or "no" to the plan. Do not claim a test passes: you ran nothing.
 
 ## Steps
 

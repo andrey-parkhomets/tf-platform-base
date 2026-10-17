@@ -170,6 +170,10 @@ is "suggests the command for tests_needed only" "$(grep -c 'agent coverage modul
 is "HTML and mentions are neutralised" "$(grep -c '<script>' <<<"$out") $(grep -c '@everyone' <<<"$out")" "0 0"
 is "missing report is stated" "$(grep -c 'No valid report' <<<"$out")" 1
 is "truncation is stated" "$(grep -c '4 more changed directories' <<<"$out")" 1
+is "plan label follows the decision" "$(grep -c 'Tests it would write' <<<"$out") $(grep -c 'Existing tests that cover it' <<<"$out")" "1 0"
+echo '{"dir":"modules/b","decision":"no_change_needed","rationale":"covered","test_plan":["retention_defaults: asserts 30"]}' >.agent/report/modules-b.json
+out_b=$(MATRIX='[{"dir":"modules/b","slug":"modules-b"}]' "$scripts/render-analysis.sh")
+is "covered change lists existing tests, not 'would write'" "$(grep -c 'Tests it would write' <<<"$out_b") $(grep -c 'Existing tests that cover it' <<<"$out_b")" "0 1"
 is "comment has its own marker" "$(head -1 <<<"$out")" "<!-- tf-test-agent-analysis -->"
 echo '{"dir":"modules/a","decision":"rm -rf /"}' >.agent/report/modules-a.json
 out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-analysis.sh")

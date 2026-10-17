@@ -45,7 +45,11 @@ for i in $(seq 0 $((count - 1))); do
       echo
     fi
     if [[ $(jq '(.test_plan // []) | length' "$report") -gt 0 ]]; then
-      echo "Tests it would write:"
+      # `test_plan` is what to write when tests are needed, and the run blocks that already cover the change when not.
+      case "$decision" in
+        tests_needed|tests_need_update) echo "Tests it would write:" ;;
+        *) echo "Existing tests that cover it:" ;;
+      esac
       jq -r '(.test_plan // [])[:12][] | "- " + .' "$report" | clean 2000
       echo
     fi
