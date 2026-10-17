@@ -26,6 +26,11 @@ variable "target_resource_id" {
 variable "subresource_name" {
   description = "Sub-resource of the target, for example blob, dfs, vault or dataFactory."
   type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z][A-Za-z0-9_]*$", var.subresource_name))
+    error_message = "The subresource_name must start with a letter and contain only letters, digits and underscores."
+  }
 }
 
 variable "private_dns_zone_id" {
