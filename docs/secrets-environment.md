@@ -29,8 +29,8 @@ After the repository-level copies were deleted, a workflow on a branch that does
 `key=0 app_id=0 app_key=0` (lengths of the three values). The comment commands and the automatic analysis ran successfully on
 the environment secrets alone (`agent check comments` and a push by a person, both after the deletion).
 
-In the workflows, only the jobs that use a secret declare `environment: tf-ai-agent`: `analyze` (tf-ai-analysis), `agent` and
-`commit` (reusable-tf-ai-write), `creds` and `remove` (tf-ai-commands).
+In the workflows, only the jobs that use a secret declare `environment: tf-ai-agent`: `analyze` (tf-ai-analysis), `agent`
+(reusable-tf-ai-round), `commit` (reusable-tf-ai-write), `creds` and `remove` (tf-ai-commands). The agent job is in `reusable-tf-ai-round`.
 
 ### Reusable workflows need the secrets declared and passed
 
@@ -45,7 +45,7 @@ takes precedence over the passed value. Tested on this repository with an enviro
 | declares nothing | `secrets: inherit` | the environment value |
 | declares the secret | passes nothing | **empty** |
 
-The first row is what `reusable-tf-ai-write` does (explicit; `secrets: inherit` is not used). The last row is the mistake that
+The first row is what `reusable-tf-ai-write` does, and what it does again when it forwards the model key to `reusable-tf-ai-round` (explicit; `secrets: inherit` is not used). The last row is the mistake that
 broke the write path once: the secrets were set, and the jobs still saw nothing. `scripts/test-guards.sh` fails if a job reads
 one of the secrets without declaring the environment, if a reusable workflow reads a secret it does not declare, or if
 `secrets: inherit` appears.
@@ -78,7 +78,7 @@ Selected branches and tags, add `main`; then add the three secrets under Environ
 Order matters, and it differs for the two kinds of job:
 
 - A plain job that declares the environment also sees repository secrets, so it keeps working while the environment is still empty.
-- A job inside a **reusable workflow** (`agent` and `commit` in `reusable-tf-ai-write`) reads the environment secret or gets what the
+- A job inside a **reusable workflow** (`agent` in `reusable-tf-ai-round`, `commit` in `reusable-tf-ai-write`) reads the environment secret or gets what the
   caller passed. If the environment is empty and the repository-level copies are already deleted, it gets empty values: the agent
   step fails with "ANTHROPIC_API_KEY ... is required" and the commit step with "The 'client-id' (or deprecated 'app-id') input
   must be set".

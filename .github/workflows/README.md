@@ -42,4 +42,5 @@ GitHub only reads `*.yml` / `*.yaml` in this folder, so this file is documentati
 | `tf-ai-commands.yml` | `issue_comment` | `reusable-tf-ai-write` | `agent coverage`, `agent check comments`, `agent remove <sha>` |
 | `tf-cache-warm.yml` | `push` (main), `schedule`, `workflow_dispatch` | | provider and CodeGraph caches |
 | `reusable-checkov.yml` | `workflow_call` | | one Checkov scan, SARIF artifact |
-| `reusable-tf-ai-write.yml` | `workflow_call` | `reusable-checkov` | agent writes tests, verify without secrets, commit with the App token, report |
+| `reusable-tf-ai-write.yml` | `workflow_call` | `reusable-checkov`, `reusable-tf-ai-round` (twice at most) | scan, write and verify (round 1, a retry in round 2), commit with the App token, report |
+| `reusable-tf-ai-round.yml` | `workflow_call` | | one round: the agent writes tests and never runs Terraform; a job without secrets formats and verifies them |

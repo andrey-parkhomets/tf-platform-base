@@ -183,7 +183,7 @@ is "no valid report never says 'no test work is recommended'" "$(grep -c 'No tes
 echo "== workflows"
 cd "$repo" || exit 1
 expect_rc "no workflow inherits all secrets" 1 grep -rq --include='*.yml' 'secrets: inherit' .github/workflows
-is "the write path has one implementation" "$(grep -lE 'claude-code-action' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "reusable-tf-ai-write.yml tf-ai-analysis.yml "
+is "the write path has one implementation" "$(grep -lE 'claude-code-action' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "reusable-tf-ai-round.yml tf-ai-analysis.yml "
 
 echo "== check-test-quality.sh (insecure defaults)"
 r="$tmp/q2"; new_repo "$r"; cd "$r" || exit 1
@@ -242,6 +242,68 @@ while IFS= read -r c; do
   [[ -f ".github/workflows/$c" ]] || called_missing="$called_missing $c"
 done < <(grep -rhoE --include='*.yml' 'uses: \./\.github/workflows/[A-Za-z0-9._-]+\.yml' .github/workflows | sed 's#.*/##' | sort -u)
 is "every called reusable workflow exists" "${called_missing:-none}" none
+
+echo "== the agent never runs Terraform"
+cd "$repo" || exit 1
+expect_rc "no workflow allows a Terraform command to the model" 1 grep -rqE --include='*.yml' 'allowedTools.*Bash\(terraform' .github/workflows
+tfnear=""
+for f in .github/workflows/*.yml; do
+  o=$(awk -v file="$(basename "$f")" '
+    function flush() { if (job != "" && key && tf) printf "%s:%s ", file, job; key = 0; tf = 0 }
+    /^jobs:/ { injobs = 1; next }
+    injobs && /^  [A-Za-z0-9_-]+:[ \t]*$/ { flush(); job = $1; sub(/:$/, "", job); next }
+    /^[ \t]*#/ { next }
+    injobs && /^    environment:[ \t]*tf-ai-agent/ { key = 1 }
+    injobs && /hashicorp\/setup-terraform/ { tf = 1 }
+    END { flush() }' "$f")
+  tfnear="$tfnear$o"
+done
+is "no job that can read the agent secrets installs Terraform" "${tfnear:-none}" none
+# commit-job exception: it declares the environment for the App secrets and installs no Terraform (covered by the same check)
+
+echo "== select-retry.sh"
+r="$tmp/sr"; mkdir -p "$r"; cd "$r" || exit 1
+m='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"},{"dir":"modules/c","slug":"modules-c"},{"dir":"modules/d","slug":"modules-d"},{"dir":"modules/e","slug":"modules-e"},{"dir":"modules/f","slug":"modules-f"}]'
+echo '{"ok":true,"results":{"quality":"pass","test":"pass"}}' >modules-a.json                      # passed
+echo '{"ok":false,"results":{"quality":"pass","validate":"fail"}}' >modules-b.json                 # validate: test edits can fix it
+echo '{"ok":false,"results":{"quality":"fail"}}' >modules-c.json                                   # quality, even with no patch
+echo '{"ok":false,"results":{"quality":"pass","init":"fail"}}' >modules-d.json                     # init: not fixable by the agent
+echo '{"ok":false,"results":{"quality":"pass","fmt":"fail","init":"pass","validate":"pass","test":"pass"}}' >modules-e.json   # fmt of a .tf file
+# modules-f: no result file at all
+is "retries only failures that test edits can fix" "$(MATRIX="$m" DL=. "$scripts/select-retry.sh" | jq -r 'map(.dir)|join(",")')" "modules/b,modules/c"
+is "no failures, nothing to retry" "$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' DL=. "$scripts/select-retry.sh")" "[]"
+is "an odd slug is skipped" "$(MATRIX='[{"dir":"x","slug":"../b"}]' DL=. "$scripts/select-retry.sh")" "[]"
+
+echo "== pick-round.sh"
+r="$tmp/pr"; mkdir -p "$r/verify-r1-modules-a" "$r/verify-r1-modules-b" "$r/verify-r2-modules-b"; cd "$r" || exit 1
+echo '{}' >verify-r1-modules-a/modules-a.json; echo '{}' >verify-r1-modules-b/modules-b.json; echo '{}' >verify-r2-modules-b/modules-b.json
+is "round 1 when there was no retry" "$("$scripts/pick-round.sh" . modules-a)" 1
+is "round 2 supersedes round 1 when it ran" "$("$scripts/pick-round.sh" . modules-b)" 2
+is "an odd slug falls back to round 1" "$("$scripts/pick-round.sh" . '../x')" 1
+
+echo "== verify-module.sh (stubbed terraform): quality check inside, round recorded"
+r="$tmp/vm"; new_repo "$r"; cd "$r" || exit 1
+mkdir -p "$tmp/stubbin"
+# shellcheck disable=SC2016  # the stub script is written literally, its variables must not expand here
+printf '#!/usr/bin/env bash\ncase "$1" in test) echo "Success! 1 passed, 0 failed.";; esac\nexit 0\n' >"$tmp/stubbin/terraform"; chmod +x "$tmp/stubbin/terraform"
+printf 'run "no_assert" {\n  command = plan\n}\n' >modules/m1/tests/a.tftest.hcl
+PATH="$tmp/stubbin:$PATH" ROUND=2 "$scripts/verify-module.sh" modules/m1 >/dev/null 2>&1; rc=$?
+is "a test without an assert fails verification" "$rc $(jq -r '.ok' .agent/verify/modules-m1.json) $(jq -r '.results.quality' .agent/verify/modules-m1.json) $(jq -r '.round' .agent/verify/modules-m1.json)" "1 false fail 2"
+is "the log tells the agent what to fix" "$(grep -c 'has no assert' .agent/verify/modules-m1.log)" 1
+printf 'run "ok" {\n  command = plan\n  assert {\n    condition     = 1 == 1 || var.x\n    error_message = "m"\n  }\n}\n' >modules/m1/tests/a.tftest.hcl
+PATH="$tmp/stubbin:$PATH" "$scripts/verify-module.sh" modules/m1 >/dev/null 2>&1; rc=$?
+is "a valid test passes, round defaults to 1" "$rc $(jq -r '.ok' .agent/verify/modules-m1.json) $(jq -r '.results.quality' .agent/verify/modules-m1.json) $(jq -r '.round' .agent/verify/modules-m1.json)" "0 true pass 1"
+
+echo "== render-report.sh: a fix round is visible"
+r="$tmp/rr"; mkdir -p "$r/.agent/report" "$r/.agent/verify"; cd "$r" || exit 1
+echo '{"dir":"modules/a","decision":"created","rationale":"x"}' >.agent/report/modules-a.json
+echo '{"dir":"modules/a","round":2,"ok":true,"results":{"quality":"pass","fmt":"pass","test":"pass"},"summary":"Success! 3 passed, 0 failed.","mutation":{"total":0,"survived":0,"survivors":[]}}' >.agent/verify/modules-a.json
+echo '{"dir":"modules/a","round":1,"ok":false,"results":{"quality":"pass","validate":"fail"},"summary":"","mutation":{}}' >.agent/verify/modules-a.round1.json
+out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-report.sh")
+is "the comment says round 1 failed on validate and a fix round followed" "$(grep -c 'Round 1 failed verification (validate)' <<<"$out")" 1
+echo '{"dir":"modules/a","round":2,"ok":false,"results":{"quality":"pass","test":"fail"},"summary":"Failure! 9 passed, 1 failed.","mutation":{}}' >.agent/verify/modules-a.json
+out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-report.sh")
+is "a failed second round is not described as a fix" "$(grep -c 'fixed the tests' <<<"$out") $(grep -c 'failed as well' <<<"$out")" "0 1"
 
 echo "== secrets are only used by jobs that declare the environment"
 cd "$repo" || exit 1

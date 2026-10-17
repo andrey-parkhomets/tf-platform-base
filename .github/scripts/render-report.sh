@@ -71,6 +71,16 @@ for i in $(seq 0 $((count - 1))); do
 
   echo "**Verification** (separate job, no secrets, tests re-run from the patch):"
   echo
+  r1=".agent/verify/$slug.round1.json"
+  if [[ -f "$r1" ]]; then
+    failed1=$(jq -r '[.results | to_entries[] | select(.value == "fail") | .key] | join(", ")' "$r1" | clean 120)
+    if [[ "$(jq -r '.ok // false' "$verify" 2>/dev/null)" == true ]]; then
+      echo "_Round 1 failed verification (${failed1:-unknown}); the agent read the log and fixed the tests in a second round, which is the result below._"
+    else
+      echo "_Round 1 failed verification (${failed1:-unknown}); the agent read the log in a second round, which failed as well (result below). Nothing is committed from a failed verification._"
+    fi
+    echo
+  fi
   if [[ -f "$verify" ]]; then
     echo "| check | result |"; echo "|---|---|"
     jq -r '.results | to_entries[] | "\(.key)|\(.value)"' "$verify" | while IFS='|' read -r k v; do

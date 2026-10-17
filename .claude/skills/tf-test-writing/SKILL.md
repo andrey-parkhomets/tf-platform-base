@@ -5,6 +5,11 @@ description: Repository-specific rules for writing terraform test files in this 
 
 # House rules for tests in this repo
 
+> **You cannot run Terraform in this pipeline** (not installed in your job, no command allowed). Everything the general
+> `terraform-test` skill says about running `terraform test` is done for you by a separate job after you finish; you get one more
+> round with its log if it fails. So: keep tests small, copy the shape of the existing tests in the repository, and re-read each
+> `run` against the module before you report.
+
 Read the `terraform-test` skill first for syntax. This skill only adds what is local, and where the
 two disagree, **this skill wins** (the baseline skill covers apply-mode integration tests that this
 repo does not allow).
