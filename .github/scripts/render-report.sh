@@ -56,7 +56,15 @@ for i in $(seq 0 $((count - 1))); do
     echo "Skills used: $(jq -r '(.skills_used // []) | map("`" + . + "`") | join(", ")' "$report" | clean 400)"
     echo
   else
-    echo "**Decision:** no agent report was produced for this directory. Either the agent step failed, or it was skipped because the agent definition (\`.claude/agents/tf-test-agent.md\`) is not on the base branch yet; the action only loads agent definitions from the base branch."
+    agent_result=$(jq -r '.agent // "unknown"' <<<"${JOB_RESULTS:-{\}}")
+    skipped=$(jq -r '.skipped // empty' "$report" 2>/dev/null || true)
+    if [[ $skipped == agent_definition_not_on_base ]]; then
+      echo "**Decision:** none. The agent was skipped: the agent definition (\`.claude/agents/tf-test-agent.md\`) is not on the base branch yet, and the action only loads agent definitions from the base branch."
+    elif [[ $agent_result == failure ]]; then
+      echo "**Decision:** none. The agent step failed for this run (see the workflow run for the reason, for example a turn limit). Tests it had already written are still verified below; nothing is pushed to this branch."
+    else
+      echo "**Decision:** no agent report was produced for this directory (the agent is skipped for fork and bot pull requests)."
+    fi
     echo
   fi
 
