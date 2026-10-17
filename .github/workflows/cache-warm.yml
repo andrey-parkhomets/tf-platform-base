@@ -20,7 +20,6 @@ permissions: {}
 
 env:
   TF_VERSION: "1.15.1"
-  TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tf-plugin-cache
   CODEGRAPH_VERSION: "1.6.2"
 
 jobs:
@@ -40,9 +39,12 @@ jobs:
         with:
           node-version: "22"
 
+      # The cache path is part of the cache version: it must be the same string here and in the jobs that restore it
+      # (~/.terraform.d/plugin-cache), or every restore misses.
       - name: Download providers into the plugin cache
         run: |
           set -euo pipefail
+          export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
           for d in modules/* stacks/*; do
             [ -d "$d" ] && terraform -chdir="$d" init -backend=false -input=false -lockfile=readonly >/dev/null
@@ -50,7 +52,7 @@ jobs:
           du -sh "$TF_PLUGIN_CACHE_DIR"
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          path: ~/.terraform.d/plugin-cache
           key: tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-${{ hashFiles('**/.terraform.lock.hcl') }}
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
