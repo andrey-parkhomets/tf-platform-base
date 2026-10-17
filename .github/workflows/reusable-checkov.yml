@@ -2,6 +2,8 @@ name: reusable-checkov
 
 # One Checkov scan, used by every pipeline that needs it (tf-check, tf-ai-analysis, reusable-tf-ai-write), so the action is
 # pinned and configured in a single place. Static scan, no secrets, soft fail: the result is information.
+# With `base_ref` the base commit is scanned too (a parallel job), so that scope-sarif.sh can tell the findings a pull request
+# introduces from the ones already on its base.
 # The scan config (.checkov.yaml) comes from the ref that is scanned.
 on:
   workflow_call:
@@ -14,6 +16,10 @@ on:
         description: "name of the SARIF artifact. Two callers in one workflow run need two names"
         type: string
         default: checkov
+      base_ref:
+        description: "commit to scan as the baseline (the pull request's base); empty = no baseline. Its SARIF is the artifact <artifact_name>-base"
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -58,4 +64,32 @@ jobs:
         with:
           name: ${{ inputs.artifact_name }}
           path: results.sarif
+          if-no-files-found: warn
+
+  scan_base:
+    name: Scan base
+    if: ${{ inputs.base_ref != '' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.base_ref }}
+          persist-credentials: false
+      - name: Scan
+        uses: bridgecrewio/checkov-action@6f26dc90000b74feb589a906cdfae540f5119895 # v12.3134.0
+        with:
+          directory: .
+          config_file: .checkov.yaml
+          soft_fail: true
+          output_format: cli,sarif
+          output_file_path: console,results-base.sarif
+          skip_results_upload: true
+          download_external_modules: false
+          # Same configuration as the scan above (see the notes there).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.artifact_name }}-base
+          path: results-base.sarif
           if-no-files-found: warn

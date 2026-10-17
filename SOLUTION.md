@@ -37,7 +37,7 @@ reusable-tf-ai-round:  agent (model key, writes files, NO Terraform) ─► veri
 | **Custom agent** | `.claude/agents/tf-test-agent.md`: role, hard rules, three modes (`analyze`, `coverage`, `revise`), tool list |
 | **Skills** | `.claude/skills/`: `tf-change-analysis`, `tf-test-writing`, `tf-test-verify`, `tf-review-findings`, and the vendored HashiCorp `terraform-test` (pinned, see its `PROVENANCE.md`) |
 | Workflows | `.github/workflows/`: entry workflows `tf-check`, `tf-ai-analysis`, `tf-ai-commands`, `tf-cache-warm`; reusable `reusable-checkov`, `reusable-tf-ai-write`, `reusable-tf-ai-round`. Names and rules: `.github/workflows/README.md` |
-| Deterministic scripts | `.github/scripts/` (command grammar, directory detection, path guard, test-quality check, verification, mutation check, commit and revert, review threads, comment rendering, automatic-write selection). Tested by `scripts/test-guards.sh` (seconds, no Docker) |
+| Deterministic scripts | `.github/scripts/` (command grammar, directory detection, path guard, test-quality check, verification, mutation check, commit and revert, review threads, comment rendering, automatic-write selection, making model text inert, scoping Checkov results). Tested by `scripts/test-guards.sh` (seconds, no Docker) |
 | More detail | `docs/secrets-environment.md` (where the secrets live), `docs/actions-policy.md` (Actions event policy to create), `docs/security-review.md`, `docs/model-comparison.md`, `docs/lessons-from-github-runs.md` |
 
 **How a run uses the skills.** `tf-change-analysis`: read the diff with a fixed command, ask CodeGraph who depends on the changed
@@ -65,7 +65,7 @@ triage Checkov, add what a scanner cannot see, write the report JSON, including 
 | **Comment commands: `issue_comment`, default-branch workflow, write permission, one-line grammar** | A PR cannot rewrite the workflow, the agent file or the skills. Commands match a strict regex; chatter and quoted commands do nothing | Fork PRs get no agent. A change to the workflow, agent or skills applies after merge, and the PR that introduces it cannot run it |
 | **Offline tests: `mock_provider` and `command = plan`** | No credentials, no cost, deterministic | Tests show configuration and wiring, not provider behaviour (see below) |
 | **Mutation check as a gap detector** | It breaks the module in simple ways in a temporary copy (flip a boolean, change a string, drop `tags`) and lists breakages no test noticed. A survivor means "no test checks this", nothing more | Four crude operators, first match only; some survivors are harmless. A list of hints, not a score |
-| **One Checkov scan, reusable** (`reusable-checkov`) | Cheap and certain for known misconfigurations. The agent triages it in context and adds what a scanner misses. Run by a workflow from the default branch for the agent's input, pinned and configured in one place. `soft_fail`, informational | Scans the whole repository, so old findings appear in the count |
+| **One Checkov scan, reusable, scoped afterwards** (`reusable-checkov`, `scope-sarif.sh`) | Cheap and certain for known misconfigurations. The workflow scans the whole repository (some checks are graph checks that need the stack around a module) and the base commit as well, in a parallel job. `scope-sarif.sh` then keeps the findings below the changed directory and marks each `new` (not on the base) or `existing`. The agent triages the new ones; the comment says "N findings in the changed directories, X new and Y already on the base; whole repository: K". `soft_fail`, informational | A second scan per run (parallel, no extra wait). A moved or renamed resource shows its findings as new again; the baseline is scanned with the base commit's own Checkov configuration |
 | **CodeGraph index, cached from `main`** | The agent finds callers and dependants (Terraform resources, variables, modules). Pinned version, `--ignore-scripts`; PRs only restore the cache and sync | A third-party tool in the agent job. Cache hit rate depends on eviction (`tf-cache-warm`) |
 | **Changed directories from `git diff`, no third-party action** | `detect-modules.sh` derives the matrix from `BASE...HEAD` and validates every name (`^(modules\|stacks)/[A-Za-z0-9][A-Za-z0-9._-]*$`, no `..`) before use; changed-files actions have been compromised in the supply chain | Nothing |
 | **Actions pinned to commit SHAs, `ubuntu-24.04`** | Supply chain and a stable runner image | Updates are deliberate |
@@ -181,7 +181,9 @@ so the agent must not bless insecure behaviour (for example `ftps_state = "AllAl
   job split and the path guard. One planted example was ignored; that is evidence, not a proof.
 - The comment filter is syntactic. It stops injected links, images, HTML, mentions and forged sections; it cannot stop a model that
   has been talked into writing something false in plain words. The diff, not the comment, is what a reviewer approves.
-- Checkov scans the whole repository, so the count includes old findings; the SARIF is not uploaded to code scanning.
+- Findings are told apart from the base by rule, file and the first line of the resource, because the SARIF has no fingerprints and line
+  numbers move; code that is moved or renamed counts as new. `tf-check` still shows the raw whole-repository result, and no SARIF is
+  uploaded to code scanning.
 - The evidence so far is a limited number of runs with one model on one public repository.
 
 ## Many more modules, teams or repositories
@@ -200,5 +202,5 @@ so the agent must not bless insecure behaviour (for example `ftps_state = "AllAl
 - Federated short-lived credentials for the model API, an egress allow-list on the runner, and Terraform for the agent in a
   container without the key.
 - Signed commits through the API and branch protection that requires `verify`; Dependabot for action SHAs; a scheduled `tf-cache-warm`.
-- Per-PR token budget. Checkov SARIF to code scanning on changed paths with a baseline.
+- Per-PR token budget. Checkov SARIF to code scanning (the scoped, new findings only).
 - Integration tests (`terraform test` with real resources) in an ephemeral subscription on merge, outside this offline workflow.

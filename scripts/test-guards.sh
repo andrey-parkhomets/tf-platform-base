@@ -338,6 +338,55 @@ missing=""
 for e in $events; do grep -q "| \`$e\` |" docs/actions-policy.md || missing="$missing $e"; done
 is "every workflow trigger is listed in docs/actions-policy.md" "${missing:-none}" none
 
+echo "== scope-sarif.sh: scope to the changed directories, new vs existing"
+r="$tmp/sc"; mkdir -p "$r"; cd "$r" || exit 1
+res() { # res <ruleId> <uri> <startLine> <resource header line>
+  jq -nc --arg r "$1" --arg u "$2" --argjson l "$3" --arg h "$4" '{ruleId:$r, level:"error", message:{text:"m"}, locations:[{physicalLocation:{artifactLocation:{uri:$u}, region:{startLine:$l, snippet:{text:($h + "\n  name = 1\n}\n")}}}}]}'
+}
+sarif() { jq -nc --slurpfile a <(cat) '{version:"2.1.0", runs:[{tool:{driver:{name:"Checkov"}}, results:$a}]}'; }
+{ res CKV_A modules/a/main.tf 1 'resource "x" "this" {'
+  res CKV_B modules/a/main.tf 1 'resource "x" "this" {'
+  res CKV_A modules/ab/main.tf 1 'resource "x" "this" {'
+  res CKV_C modules/b/main.tf 5 'resource "y" "this" {'
+  res CKV_D /stacks/s/main.tf 3 'module "m" {'; } | sarif >head.sarif
+# base: CKV_A on modules/a existed (at another line: lines move), modules/b had the resource under another name, nothing else
+{ res CKV_A modules/a/main.tf 40 'resource "x" "this" {'
+  res CKV_C modules/b/main.tf 5 'resource "y" "old_name" {'; } | sarif >base.sarif
+echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Checkov"}},"results":[]}]}' >empty.sarif
+sum() { "$scripts/scope-sarif.sh" --summary "$@" | jq -c '[.total,.in_scope,.new,.existing,.baseline]'; }
+is "whole-repository total is kept for context"          "$(sum head.sarif base.sarif modules/a | jq -c '.[0]')" 5
+is "a finding is existing when rule, file and resource are the same, even if the line moved" "$(sum head.sarif base.sarif modules/a)" "[5,2,1,1,true]"
+is "a lookalike directory is not in scope (modules/ab for modules/a)" "$("$scripts/scope-sarif.sh" head.sarif base.sarif modules/a | jq -r '[.runs[0].results[].locations[0].physicalLocation.artifactLocation.uri]|join(",")')" "modules/a/main.tf,modules/a/main.tf"
+is "a renamed resource looks new (documented approximation)" "$(sum head.sarif base.sarif modules/b)" "[5,1,1,0,true]"
+is "no baseline: findings are counted but not classified" "$(sum head.sarif - modules/a)" "[5,2,0,0,false]"
+is "a missing baseline file behaves like no baseline"     "$(sum head.sarif nonexistent.sarif modules/a)" "[5,2,0,0,false]"
+is "a baseline with no findings makes everything new"     "$(sum head.sarif empty.sarif modules/a modules/b)" "[5,3,3,0,true]"
+is "the same rule on a same-looking resource in ANOTHER module is new, not existing (the file is part of the identity)" "$(sum head.sarif base.sarif modules/ab)" "[5,1,1,0,true]"
+is "a leading slash in the file path is normalised"      "$(sum head.sarif base.sarif stacks/s)" "[5,1,1,0,true]"
+is "several directories are summed"                       "$(sum head.sarif base.sarif modules/a stacks/s)" "[5,3,2,1,true]"
+is "a directory with no findings gives zero"               "$(sum head.sarif base.sarif modules/private-endpoint)" "[5,0,0,0,true]"
+full=$("$scripts/scope-sarif.sh" head.sarif base.sarif modules/a)
+is "the scoped SARIF marks every result and keeps the rest of the document" "$(jq -r '[.runs[0].results[].properties.scope]|join(",")' <<<"$full") $(jq -r '.runs[0].tool.driver.name' <<<"$full") $(jq -c '.runs[0].properties.checkovScope.new' <<<"$full")" "existing,new Checkov 1"
+is "no baseline marks results unknown, never new" "$("$scripts/scope-sarif.sh" head.sarif - modules/a | jq -r '[.runs[0].results[].properties.scope]|join(",")')" "unknown,unknown"
+# shellcheck disable=SC2016  # the $(id) is a literal test string
+for bad in '../etc' 'modules/a b' 'modules/' 'modules' '/etc/passwd' 'modules/a/..' 'modules/$(id)'; do
+  "$scripts/scope-sarif.sh" --summary head.sarif - "$bad" >/dev/null 2>&1; rc=$?
+  is "a bad directory argument is refused: $bad" "$rc" 2
+done
+echo 'not json' >notsarif.sarif
+out=$("$scripts/scope-sarif.sh" notsarif.sarif - modules/a 2>/dev/null); rc=$?
+is "a head file that is not a SARIF gives no output and exit 1" "$rc:${out:-empty}" "1:empty"
+
+echo "== render-report.sh: the Checkov line is scoped to the changed directories"
+r="$tmp/rcl"; mkdir -p "$r/.agent/report" "$r/.agent/verify"; cd "$r" || exit 1
+cp "$tmp/sc/head.sarif" .agent/checkov.sarif; cp "$tmp/sc/base.sarif" .agent/checkov-base.sarif
+out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"}]' "$scripts/render-report.sh")
+is "the line gives findings in scope, new, existing, and the whole-repository figure" "$(grep -c 'Checkov (automated scanner): 3 finding(s) in the changed directories, 2 new in this pull request and 1 already on the base. Whole repository: 5\.' <<<"$out")" 1
+is "the old whole-repository wording is gone" "$(grep -c 'whole repository): ' <<<"$out")" 0
+rm .agent/checkov-base.sarif
+out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-report.sh")
+is "without a baseline the line says new and existing are not told apart" "$(grep -c '2 finding(s) in the changed directories (no baseline scan, so new and existing are not told apart)' <<<"$out")" 1
+
 echo "== comment sanitizer: hostile text (sanitize-text.sh)"
 cd "$repo" || exit 1
 san() { printf '%s' "$1" | "$scripts/sanitize-text.sh" "${2:-300}"; }

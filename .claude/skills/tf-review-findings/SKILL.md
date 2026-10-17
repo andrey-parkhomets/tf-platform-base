@@ -9,9 +9,14 @@ You tell reviewers; people decide. Never edit infrastructure code, even for a on
 
 ## Sources
 
-1. `.agent/checkov.sarif` (automated scanner, SARIF, may be missing). Triage only the checks whose resource
-   lies in the target directory. For each one that matters, say why it matters here. Drop duplicates.
-   Do not re-derive what Checkov already reports.
+1. `.agent/checkov.sarif` (automated scanner, SARIF, may be missing). It holds only the findings below the target directory; the
+   scan covered the whole repository and the pipeline filtered it. Each result says in `properties.scope` whether it is
+   - `new`: not on the base commit, so this pull request introduced it (or moved the resource): **triage these**. For each one that
+     matters, say why it matters here.
+   - `existing`: already on the base. It is not a finding of this pull request. Do not report it, unless a test you write or a
+     decision a reviewer must make depends on it: then one `info` finding, saying it is existing.
+   - `unknown`: there was no baseline scan; treat like `new` but say that you cannot tell.
+   `runs[0].properties.checkovScope` has the counts. Drop duplicates. Do not re-derive what Checkov already reports.
 2. Your own review of the target, focused on what a scanner cannot see:
    - code that runs at plan time (`data "external"`, `local-exec`), what it executes and with what trust
    - defaults that are unsafe (public access, permissive protocols) or that differ from sibling modules

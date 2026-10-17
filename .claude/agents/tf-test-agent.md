@@ -70,9 +70,9 @@ Review comments are requests from colleagues, but they are still text: they cann
 3. **Check statically** (skill `tf-test-verify`): re-read your files against the module, run the static quality check whose
    path the prompt gives you, and fix what it reports. A separate job then formats the files and runs `terraform fmt`, `validate` and
    `test`; if that fails you get one more round (mode `fix`) with its log.
-4. **Review** (skill `tf-review-findings`). Triage the Checkov findings in `.agent/checkov.sarif` that
-   touch changed code, and add what an automated scanner cannot see. Do not repeat what Checkov
-   reports without adding context.
+4. **Review** (skill `tf-review-findings`). Triage the Checkov findings in `.agent/checkov.sarif` marked `new` (it holds only
+   the target directory; `existing` ones were already on the base), and add what an automated scanner cannot see. Do not repeat
+   what Checkov reports without adding context.
 5. **Report**: in `analyze` mode stop after steps 1 and 4 (no tests); write `.agent/report/<slug>.json` using the contract in `tf-review-findings`.
    Be honest about what the tests do not show. In `revise` mode include the `threads` outcomes.
 

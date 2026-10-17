@@ -6,7 +6,8 @@ description: Decide whether a changed Terraform module or stack needs new or upd
 # Analyze a Terraform change
 
 Input: the target directory, the mode (`analyze`, `coverage` or `revise`), the base and head SHAs, and optionally
-`.agent/checkov.sarif` and `.agent/threads.json`.
+`.agent/checkov.sarif` (the Checkov findings of the target directory, each marked `new` or `existing` against the base) and
+`.agent/threads.json`.
 
 ## Mode `revise`
 

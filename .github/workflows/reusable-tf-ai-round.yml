@@ -116,6 +116,11 @@ jobs:
           path: .agent/checkov-dl
         continue-on-error: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.sarif_artifact }}-base
+          path: .agent/checkov-dl
+        continue-on-error: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: inputs.has_threads == 'true'
         with:
           name: threads
@@ -158,6 +163,8 @@ jobs:
           restore-keys: |
             codegraph-${{ runner.os }}-${{ env.CODEGRAPH_VERSION }}-
       - name: Prepare CodeGraph (incremental sync, full index on a cache miss) and the agent's inputs
+        env:
+          DIR: ${{ matrix.dir }}
         run: |
           set -euo pipefail
           # Per-job prefix, not `--global`: parallel jobs must not share an npm directory.
@@ -166,8 +173,10 @@ jobs:
           echo "$RUNNER_TEMP/codegraph/node_modules/.bin" >>"$GITHUB_PATH"
           if [ -d .codegraph ]; then codegraph sync . ; else codegraph init . ; fi
           mkdir -p .agent/report
-          f=$(find .agent/checkov-dl -name '*.sarif' -print -quit 2>/dev/null || true)
-          if [ -n "$f" ]; then cp "$f" .agent/checkov.sarif; fi
+          # Only the findings below the target directory, each marked new / existing against the base commit (scope-sarif.sh).
+          head=.agent/checkov-dl/results.sarif; basef=.agent/checkov-dl/results-base.sarif
+          [ -f "$basef" ] || basef=-
+          if [ -f "$head" ]; then .agent/trusted/.github/scripts/scope-sarif.sh "$head" "$basef" "$DIR" >.agent/checkov.sarif || rm -f .agent/checkov.sarif; fi
           if [ -f .agent/threads-dl/threads.json ]; then cp .agent/threads-dl/threads.json .agent/threads.json; fi
 
       # With step debugging on, the action prints the model's full output. On a public repository those logs are public.
