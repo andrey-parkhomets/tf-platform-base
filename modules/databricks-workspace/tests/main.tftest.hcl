@@ -27,7 +27,6 @@ run "inputs_reach_the_workspace" {
 
 run "workspace_has_no_public_ip" {
   command = plan
-
   assert {
     condition     = azurerm_databricks_workspace.this.custom_parameters[0].no_public_ip == true
     error_message = "The workspace must always be created with no_public_ip = true."
