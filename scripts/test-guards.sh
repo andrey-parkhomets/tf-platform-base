@@ -308,6 +308,12 @@ is "no workflow carries an inline agent prompt (they use .github/agent/ through 
 is "the two workflows that run the model render their prompt and tools" "$(grep -l 'render-agent-config.sh' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "reusable-tf-ai-round.yml tf-ai-analysis.yml "
 is "no workflow hard-codes an --allowedTools list" "$(grep -c -- '--allowedTools "[A-Za-z]' .github/workflows/*.yml | awk -F: '{s+=$2} END{print s}')" 0
 
+echo "== tf-ai-eval: the branch under test is data"
+cd "$repo" || exit 1
+is "no step of the evaluation workflow runs a script from the branch under test (ref/)" "$(grep -cE '(^|[^A-Za-z0-9_./-])\.?/?ref/[A-Za-z0-9._/-]*\.sh' .github/workflows/tf-ai-eval.yml)" 0
+is "every harness script it runs comes from the default branch checkout (main/)" "$(grep -cE '^[[:space:]]+main/evals/(run|score|summarize)\.sh' .github/workflows/tf-ai-eval.yml | awk '{print ($1 >= 4) ? "yes" : "no"}')" yes
+is "the job that has the key is not the job that runs Terraform on model output" "$(awk '/^  [a-z]+:$/{job=$1} /environment: tf-ai-agent/{e[job]=1} /hashicorp\/setup-terraform/{t[job]=1} END{for(j in e) if(j in t) print j}' .github/workflows/tf-ai-eval.yml | tr -d '\n')" ""
+
 echo "== select-retry.sh"
 r="$tmp/sr"; mkdir -p "$r"; cd "$r" || exit 1
 m='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"},{"dir":"modules/c","slug":"modules-c"},{"dir":"modules/d","slug":"modules-d"},{"dir":"modules/e","slug":"modules-e"},{"dir":"modules/f","slug":"modules-f"}]'

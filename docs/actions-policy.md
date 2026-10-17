@@ -36,7 +36,7 @@ Allowed events, one row per trigger used in `.github/workflows/`:
 | `issue_comment` | `tf-ai-commands.yml` | `agent coverage`, `agent check comments`, `agent remove` |
 | `push` | `tf-cache-warm.yml` | the provider and CodeGraph caches are no longer refreshed on `main` |
 | `schedule` | `tf-cache-warm.yml` | the scheduled cache refresh |
-| `workflow_dispatch` | `tf-cache-warm.yml` | running `tf-cache-warm` by hand |
+| `workflow_dispatch` | `tf-cache-warm.yml`, `tf-ai-eval.yml` | running `tf-cache-warm` by hand; running the evaluation suite |
 
 `workflow_call` (used by `reusable-tf-ai-write.yml` and `reusable-checkov.yml`) is not an event that starts a run; it needs no entry.
 Do not add events the repository does not use (`workflow_run`, `pull_request_review`, `issues`, ...): a smaller list is the

@@ -1,0 +1,290 @@
+name: tf-ai-eval
+
+# Runs the evaluation suite (evals/, see evals/README.md) on demand: the agent on a fixed set of Terraform changes, scored by
+# deterministic checks, per model. Started by hand (workflow_dispatch: people with write access) and only from the default branch,
+# because it uses the model key from the environment `tf-ai-agent`, which only the default branch can use (docs/secrets-environment.md).
+#
+# The branch under test is DATA. The scripts that run in the job that holds the key (evals/run.sh and everything it calls) come from the
+# default branch; from the branch, only the agent definition (.claude/agents, .claude/skills, strictly validated by overlay-agent.sh),
+# the prompt files (.github/agent) and the cases (evals/cases) are read. Terraform runs only in the scoring job, which has no key.
+#
+#   plan   validates the inputs, resolves the branch to one commit, and refuses to start when the estimate exceeds the budget
+#   run    one job per model (key): evals/run.sh with a hard budget, results stored as an artifact
+#   score  no key: production's verification on what the writer produced, then the Markdown summary
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or commit whose agent definition, prompts and cases are evaluated (read as data)"
+        default: main
+      models:
+        description: "Model(s) to evaluate"
+        type: choice
+        options: [claude-haiku-5-5, claude-sonnet-5-5, both]
+        default: claude-haiku-5-5
+      stage:
+        description: "Which stage to evaluate"
+        type: choice
+        options: [both, analysis, writer]
+        default: both
+      repeats:
+        description: "Repeats of every case (the model varies between runs)"
+        type: choice
+        options: ["1", "2", "3"]
+        default: "1"
+      cases:
+        description: "all, or a comma-separated list of case ids"
+        default: all
+      budget_usd:
+        description: "Hard budget in USD PER MODEL (the real cost of each run is added up; the run stops when it is reached)"
+        default: "5"
+
+concurrency:
+  group: tf-ai-eval
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  TF_VERSION: "1.15.1"
+  TF_IN_AUTOMATION: "true"
+  # The CLI is pinned. Its install script is NOT skipped: it links the platform binary, and this package's binary is what receives the
+  # key anyway, so skipping its scripts would protect nothing.
+  CLAUDE_CODE_VERSION: "2.1.292"
+  CODEGRAPH_VERSION: "1.6.2"
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      models: ${{ steps.in.outputs.models }}
+      ref_sha: ${{ steps.refsha.outputs.sha }}
+    steps:
+      - name: Validate the inputs
+        id: in
+        env:
+          REF: ${{ inputs.ref }}
+          MODELS: ${{ inputs.models }}
+          CASES: ${{ inputs.cases }}
+          BUDGET: ${{ inputs.budget_usd }}
+        run: |
+          set -euo pipefail
+          [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ && "$REF" != *..* ]] || { echo "::error::bad ref"; exit 1; }
+          [[ "$CASES" == all || "$CASES" =~ ^[a-z0-9][a-z0-9,-]{0,200}$ ]] || { echo "::error::bad cases"; exit 1; }
+          [[ "$BUDGET" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "::error::bad budget"; exit 1; }
+          awk -v b="$BUDGET" 'BEGIN { exit !(b <= 20) }' || { echo "::error::the budget per model is capped at USD 20 in this workflow"; exit 1; }
+          case "$MODELS" in
+            both) echo 'models=["claude-haiku-5-5","claude-sonnet-5-5"]' >>"$GITHUB_OUTPUT" ;;
+            claude-haiku-5-5|claude-sonnet-5-5) echo "models=[\"$MODELS\"]" >>"$GITHUB_OUTPUT" ;;
+            *) echo "::error::unknown model"; exit 1 ;;
+          esac
+
+      # The default branch: the scripts (trusted).
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: main
+          fetch-depth: 0
+          persist-credentials: false
+      # The branch under test: data only.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref }}
+          path: ref
+          sparse-checkout: |
+            evals/cases
+            .github/agent
+            .claude
+          persist-credentials: false
+      - name: Resolve the branch to one commit
+        id: refsha
+        run: echo "sha=$(git -C ref rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+
+      - name: Dry run (the estimate must fit the budget)
+        env:
+          EVAL_REPO: ${{ github.workspace }}/main
+          AGENT_REF_DIR: ${{ github.workspace }}/ref
+          CASES_DIR: ${{ github.workspace }}/ref/evals/cases
+          MODELS: ${{ inputs.models }}
+          STAGE: ${{ inputs.stage }}
+          REPEATS: ${{ inputs.repeats }}
+          CASES: ${{ inputs.cases }}
+          BUDGET: ${{ inputs.budget_usd }}
+          REF_SHA: ${{ steps.refsha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          models=$([ "$MODELS" = both ] && echo "claude-haiku-5-5 claude-sonnet-5-5" || echo "$MODELS")
+          echo "Evaluating commit $REF_SHA"
+          # the budget is per model, so each model is checked on its own
+          for m in $models; do
+            echo "== $m"
+            main/evals/run.sh --dry-run --models "$m" --stage "$STAGE" --repeats "$REPEATS" --cases "$CASES" --budget "$BUDGET"
+          done
+
+  run:
+    name: Run (${{ matrix.model }})
+    needs: plan
+    runs-on: ubuntu-24.04
+    # The model key lives in this environment, which only the default branch can use (docs/secrets-environment.md).
+    environment: tf-ai-agent
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        model: ${{ fromJSON(needs.plan.outputs.models) }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.plan.outputs.ref_sha }}
+          path: ref
+          sparse-checkout: |
+            evals/cases
+            .github/agent
+            .claude
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Install the pinned Claude Code CLI and CodeGraph
+        run: |
+          set -euo pipefail
+          npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          claude --version
+          npm install --prefix "$RUNNER_TEMP/codegraph" --ignore-scripts "@colbymchenry/codegraph@${CODEGRAPH_VERSION}"
+          echo "$RUNNER_TEMP/codegraph/node_modules/.bin" >>"$GITHUB_PATH"
+
+      # Same sandbox as production: the subprocess scrub removes the key from every process the agent starts. On Linux it needs
+      # bubblewrap and socat; fail here, clearly, if the sandbox does not work.
+      - name: Install the agent's sandbox (bubblewrap, socat)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap socat
+          command -v socat >/dev/null || { echo "::error::socat is missing; the agent's sandbox needs it."; exit 1; }
+          probe() { bwrap --unshare-pid --proc /proc --dev /dev --ro-bind / / true 2>/dev/null; }
+          if ! probe; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 >/dev/null 2>&1 || true
+          fi
+          probe || { echo "::error::bubblewrap cannot create a sandbox on this runner."; exit 1; }
+
+      # With step debugging on, tool output would be printed. On a public repository those logs are public.
+      - name: Refuse to run with step debugging
+        if: runner.debug == '1'
+        run: |
+          echo "::error::Step debugging is on (runner.debug=1). Re-run without debug logging."
+          exit 1
+
+      - name: Run the cases
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+          DISABLE_AUTOUPDATER: "1"
+          EVAL_CODEGRAPH: "1"
+          EVAL_REPO: ${{ github.workspace }}/main
+          AGENT_REF_DIR: ${{ github.workspace }}/ref
+          CASES_DIR: ${{ github.workspace }}/ref/evals/cases
+          EVAL_TMP: ${{ runner.temp }}/eval
+          MODEL: ${{ matrix.model }}
+          STAGE: ${{ inputs.stage }}
+          REPEATS: ${{ inputs.repeats }}
+          CASES: ${{ inputs.cases }}
+          BUDGET: ${{ inputs.budget_usd }}
+        run: |
+          set -uo pipefail
+          mkdir -p "$EVAL_TMP"
+          main/evals/run.sh --out "out" --models "$MODEL" --stage "$STAGE" --repeats "$REPEATS" --cases "$CASES" --budget "$BUDGET"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: eval-runs-${{ matrix.model }}
+          path: out
+          if-no-files-found: warn
+          retention-days: 30
+
+  score:
+    name: Score and summarize
+    needs: [plan, run]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-24.04
+    # No key here: this job runs Terraform on what a model wrote.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.plan.outputs.ref_sha }}
+          path: ref
+          sparse-checkout: |
+            evals/cases
+            .github/agent
+            .claude
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - name: Use the plugin cache
+        run: echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >>"$GITHUB_ENV"
+      - name: Restore provider cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-${{ hashFiles('main/**/.terraform.lock.hcl') }}
+          restore-keys: |
+            tf-providers-${{ runner.os }}-${{ runner.arch }}-${{ env.TF_VERSION }}-
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "eval-runs-*"
+          path: runs
+        continue-on-error: true
+      - name: Score every model's runs
+        env:
+          EVAL_REPO: ${{ github.workspace }}/main
+          AGENT_REF_DIR: ${{ github.workspace }}/ref
+          CASES_DIR: ${{ github.workspace }}/ref/evals/cases
+          EVAL_TMP: ${{ runner.temp }}/score
+        run: |
+          set -uo pipefail
+          mkdir -p "$HOME/.terraform.d/plugin-cache" "$EVAL_TMP" scores
+          : >scores/scores.jsonl
+          for d in runs/eval-runs-*/; do
+            [ -s "$d/runs.jsonl" ] || continue
+            m=$(basename "$d")
+            main/evals/score.sh --runs "$d" --out "scores/$m.jsonl"
+            cat "scores/$m.jsonl" >>scores/scores.jsonl
+          done
+          [ -s scores/scores.jsonl ] || { echo "::error::no run results to score"; exit 1; }
+      - name: Summary
+        env:
+          REF_SHA: ${{ needs.plan.outputs.ref_sha }}
+          STAGE: ${{ inputs.stage }}
+          REPEATS: ${{ inputs.repeats }}
+          BUDGET: ${{ inputs.budget_usd }}
+        run: |
+          {
+            echo "### Evaluation of \`${REF_SHA:0:12}\`"
+            echo
+            echo "stage: \`$STAGE\`, repeats: $REPEATS, budget per model: USD $BUDGET, Claude Code CLI \`$CLAUDE_CODE_VERSION\`. The writer is scored on its first attempt (no fix round)."
+            echo
+            main/evals/summarize.sh scores/scores.jsonl
+          } | tee scores/summary.md >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: eval-scores
+          path: scores
+          retention-days: 90

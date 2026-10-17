@@ -7,6 +7,7 @@
 #          MAX_TURNS        turn limit (default: 30 analysis, 60 writer: the production defaults)
 #          AGENT_REF_DIR    the branch under test, as data (see prepare-case.sh)
 #          EVAL_TMP         where working trees are made (default: $RUNNER_TEMP or /tmp)
+#          EVAL_CODEGRAPH   1 = build the CodeGraph index in the working tree first, as production does (needs codegraph on PATH)
 #   out:   <out dir>/{run.json, result.json, report.json, tests.patch, guard.txt}
 #          run.json: {case, stage, model, repeat, cost_usd, turns, duration_ms, is_error, denials, model_used, finished}
 set -uo pipefail
@@ -31,6 +32,7 @@ trap 'git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true' EXIT
 
 info=$("$here/prepare-case.sh" "$case_dir" "$wt" --for "$stage") || { echo "run-stage: could not prepare $id" >&2; exit 2; }
 dir=$(jq -r .dir <<<"$info"); slug=$(jq -r .slug <<<"$info"); base=$(jq -r .base <<<"$info"); head=$(jq -r .head <<<"$info")
+if [[ "${EVAL_CODEGRAPH:-0}" == 1 ]] && command -v codegraph >/dev/null 2>&1; then (cd "$wt" && codegraph init . >/dev/null 2>&1) || true; fi
 ws=$(cd "$wt" && pwd -P)
 
 export DIR=$dir SLUG=$slug BASE_SHA=$base HEAD_SHA=$head PR_NUMBER=0 WORKSPACE=$ws

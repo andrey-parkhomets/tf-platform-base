@@ -49,6 +49,7 @@ the writer, each falling back to `CLAUDE_MODEL`, then to the default.
 | `tf-ai-analysis.yml` | `pull_request_target` (also `labeled` / `unlabeled` for the two policy labels) | `reusable-checkov`, `reusable-tf-ai-write` | the agent decides what the change needs (read-only), then writes tests when it decided they are needed, unless switched off (`no-auto-pr-agent` label, or `AGENT_AUTO_WRITE=0`) |
 | `tf-ai-commands.yml` | `issue_comment` | `reusable-tf-ai-write` | `agent coverage`, `agent check comments`, `agent remove <sha>` |
 | `tf-cache-warm.yml` | `push` (main), `schedule`, `workflow_dispatch` | | provider and CodeGraph caches |
+| `tf-ai-eval.yml` | `workflow_dispatch` (default branch only) | | the evaluation suite (`evals/`): the agent on fixed cases per model, scored without a model; hard budget per model; the branch under test is data |
 | `reusable-checkov.yml` | `workflow_call` | | one Checkov scan of the whole repository (SARIF artifact); with `base_ref` also a scan of the base commit (`<artifact>-base`), so `scope-sarif.sh` can scope and classify the findings |
 | `reusable-tf-ai-write.yml` | `workflow_call` | `reusable-checkov`, `reusable-tf-ai-round` (twice at most) | scan, write and verify (round 1, a retry in round 2), commit with the App token, report |
 | `reusable-tf-ai-round.yml` | `workflow_call` | | one round: the agent writes tests and never runs Terraform; a job without secrets formats and verifies them |

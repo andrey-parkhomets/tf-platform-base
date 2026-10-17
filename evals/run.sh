@@ -4,7 +4,7 @@
 # each result, reaches it. Runs are ordered repeat by repeat, so a stop leaves complete earlier repeats rather than half of everything.
 #
 #   usage: evals/run.sh --out DIR [--stage analysis|writer|both] [--models "m1 m2"] [--repeats N] [--cases id,id|all]
-#                       [--budget USD] [--force]
+#                       [--budget USD] [--force] [--dry-run]
 #   env:   CASES_DIR (default: <AGENT_REF_DIR>/evals/cases), CLAUDE_BIN, AGENT_REF_DIR (see prepare-case.sh)
 #   exit:  0 done (also when the budget stopped it; the skipped runs are recorded), 3 the estimate exceeds the budget, 2 bad arguments
 set -uo pipefail
@@ -12,19 +12,19 @@ here=$(cd "$(dirname "$0")" && pwd)
 repo=${EVAL_REPO:-$(cd "$here/.." && pwd)}
 cases_dir=${CASES_DIR:-${AGENT_REF_DIR:-$repo}/evals/cases}
 
-out=""; stage=both; models="claude-haiku-5-5"; repeats=1; want=all; budget=5; force=0
+out=""; stage=both; models="claude-haiku-5-5"; repeats=1; want=all; budget=5; force=0; dry=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) out=$2; shift 2 ;; --stage) stage=$2; shift 2 ;; --models) models=$2; shift 2 ;; --repeats) repeats=$2; shift 2 ;;
-    --cases) want=$2; shift 2 ;; --budget) budget=$2; shift 2 ;; --force) force=1; shift ;;
+    --cases) want=$2; shift 2 ;; --budget) budget=$2; shift 2 ;; --force) force=1; shift ;; --dry-run) dry=1; shift ;;
     *) echo "run.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
-[[ -n "$out" ]] || { echo "run.sh: --out is required" >&2; exit 2; }
+[[ -n "$out" || $dry -eq 1 ]] || { echo "run.sh: --out is required" >&2; exit 2; }
 [[ "$stage" =~ ^(analysis|writer|both)$ && "$repeats" =~ ^[1-9][0-9]*$ && "$budget" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "run.sh: bad stage, repeats or budget" >&2; exit 2; }
 for m in $models; do [[ "$m" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "run.sh: bad model $m" >&2; exit 2; }; done
 [[ "$want" == all || "$want" =~ ^[a-z0-9,-]+$ ]] || { echo "run.sh: bad --cases" >&2; exit 2; }
-mkdir -p "$out"
+[[ $dry -eq 1 ]] || mkdir -p "$out"
 
 # the cases and the stages each one has
 mapfile -t case_ids < <(for d in "$cases_dir"/*/; do [[ -f "$d/case.json" ]] && jq -r .id "$d/case.json"; done | sort)
@@ -59,6 +59,10 @@ echo "plan: ${#plan[@]} run(s), estimated cost USD $estimate, budget USD $budget
 if awk -v e="$estimate" -v b="$budget" 'BEGIN{exit !(e > b)}' && [[ $force -eq 0 ]]; then
   echo "run.sh: the estimate exceeds the budget. Reduce --repeats, --models or --cases, raise --budget, or use --force." >&2
   exit 3
+fi
+if [[ $dry -eq 1 ]]; then
+  printf '%s\n' "${plan[@]}" | awk -F'|' '{n[$3" "$4]++} END {for (k in n) print "  " k ": " n[k] " run(s)"}' | sort
+  echo "dry run: nothing was run"; exit 0
 fi
 
 : >"$out/runs.jsonl"
