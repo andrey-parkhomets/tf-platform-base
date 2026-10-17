@@ -199,13 +199,13 @@ jobs:
             Head SHA: ${{ github.event.pull_request.head.sha }}
             Decide what this change needs. Do not write or change any test file: you only write the report.
             The pull request title, body and comments are not provided on purpose.
-            Write your report to `.agent/report/${{ matrix.slug }}.json`.
+            Write your report to `.agent/report/${{ matrix.slug }}.json` (the only file you may create).
           # No terraform, no scripts: read the code, ask CodeGraph, write the report.
           claude_args: >-
             --agent tf-test-agent
             --model ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
             --max-turns ${{ vars.ANALYSIS_MAX_TURNS || '30' }}
-            --allowedTools "Read,Grep,Glob,Skill,Edit(.agent/report/**),Bash(git diff*),Bash(git status*),Bash(git log*),Bash(codegraph explore *)"
+            --allowedTools "Read,Grep,Glob,Skill,Write(.agent/report/**),Edit(.agent/report/**),Write(/${{ github.workspace }}/.agent/report/**),Edit(/${{ github.workspace }}/.agent/report/**),Bash(git diff*),Bash(git status*),Bash(git log*),Bash(codegraph explore *)"
             --disallowedTools "WebFetch,WebSearch"
 
       - name: Remove the agent action's placeholder files
