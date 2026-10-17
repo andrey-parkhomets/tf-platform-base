@@ -221,6 +221,13 @@ is "tests_needed is left alone" "$("$scripts/apply-quality-to-report.sh" r2.json
 is "passing check changes nothing" "$("$scripts/apply-quality-to-report.sh" r1.json q_ok.txt | jq -r .decision)" no_change_needed
 is "missing quality file changes nothing" "$("$scripts/apply-quality-to-report.sh" r1.json nofile.txt | jq -r .decision)" no_change_needed
 
+echo "== Actions event policy documentation"
+cd "$repo" || exit 1
+events=$(for f in .github/workflows/*.yml; do awk '/^on:/{f=1;next} f&&/^[a-z]/{exit} f&&/^  [a-z_]+:/{gsub(/[: ]/,"");print}' "$f"; done | sort -u | grep -v '^workflow_call$')
+missing=""
+for e in $events; do grep -q "| \`$e\` |" docs/actions-policy.md || missing="$missing $e"; done
+is "every workflow trigger is listed in docs/actions-policy.md" "${missing:-none}" none
+
 echo "== select-auto-write.sh"
 r="$tmp/sel"; mkdir -p "$r/rep"; cd "$r" || exit 1
 m='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"},{"dir":"modules/c","slug":"modules-c"},{"dir":"modules/d","slug":"modules-d"}]'
