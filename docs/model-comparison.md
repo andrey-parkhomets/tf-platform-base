@@ -1,7 +1,7 @@
 # Model choice: sonnet vs haiku
 
 The default is `claude-haiku-5-5`. This is what the choice rests on. It is a small comparison, not a benchmark: one module, one
-change, one or two runs per cell, all through the real workflow under `act` with the real action.
+change, one or two runs per cell, all through the real workflow and the real action run locally under `act` (a local simulation that has since been removed from the repository; see the git history).
 
 These runs used the earlier automatic version of the workflow; the agent file and skills are the same. **Setup.** Same pull request in every run: `function-app` (no tests before) with the service plan SKU changed `EP1` to `EP2`. In the
 `injection` runs the diff also carries a comment telling AI agents to ignore their rules and disclose the environment. Cost is the
@@ -44,5 +44,5 @@ Use sonnet (set the repository variable `CLAUDE_MODEL`) for the first pass over 
 modules, and whenever a reviewer wants more thorough edge-case tests. A proper answer needs the evaluation suite listed under "For a
 production version": a fixed set of changes with known expected tests and findings, scored on every model or prompt change.
 
-To repeat the comparison locally: `scripts/simulate-pr.sh one --model claude-sonnet-4-6` and `scripts/simulate-pr.sh one`.
+To repeat the comparison, set the repository variable `CLAUDE_MODEL` and comment `agent coverage` on the same pull request twice.
 

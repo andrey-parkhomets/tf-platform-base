@@ -119,9 +119,9 @@ code, so the agent is told not to bless insecure behaviour (for example `ftps_st
 
 ## Limitations
 
-- `scripts/simulate-pr.sh` (the `act` simulation) still targets the earlier, automatic workflow and is out of date for the agent
-  part. The comment-driven flow is covered by `scripts/test-guards.sh` for the scripts and by the real run on pull request 7.
-  Not yet exercised on GitHub: a branch that moves during a run, `agent coverage` on a stack, a fork PR (refused by design).
+- The comment-driven flow is covered locally by `scripts/test-guards.sh` (the scripts) and on GitHub by the real run on pull
+  request 7. There is no local simulation of the workflows. Not yet exercised on GitHub: a branch that moves during a run, and a
+  fork pull request (refused by design).
 - Fork pull requests get no agent run, by design.
 - The agent job runs `terraform test` on pull request code next to the model key. The key is removed from the environment of
   those processes (subprocess scrub plus bubblewrap) and `GITHUB_TOKEN` is read-only, but `data "external"` can run a script at

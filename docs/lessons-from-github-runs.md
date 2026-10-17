@@ -1,6 +1,6 @@
 # What the first runs on GitHub showed
 
-These runs were made with the first, automatic version of the workflow (the agent started on every pull request and the tests were shown as a patch). The lessons about `act`, the docs action and the turn limit still apply. `act` could not prove everything, and the first real runs found three things it had missed. They are recorded here because they
+These runs were made with the first, automatic version of the workflow (the agent started on every pull request and the tests were shown as a patch). The `act` simulation mentioned below has since been removed; the lessons about it, the docs action and the turn limit still apply. `act` could not prove everything, and the first real runs found three things it had missed. They are recorded here because they
 are the honest answer to "how much does a local simulation tell you".
 
 | Run | Finding | Fix |
