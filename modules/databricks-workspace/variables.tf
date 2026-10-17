@@ -1,6 +1,11 @@
 variable "name" {
   description = "Workspace name."
   type        = string
+
+  validation {
+    condition     = length(var.name) >= 3 && length(var.name) <= 30
+    error_message = "The name must be 3 to 30 characters long."
+  }
 }
 
 variable "resource_group_name" {
