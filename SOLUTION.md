@@ -88,10 +88,34 @@ rules, thread handling with a stubbed `gh`, quality checks).
 
 ## Example run
 
+All runs below happened on GitHub with the real `claude-code-action`, model `claude-haiku-5-5`, the GitHub App `andrey-tf-test-agent`.
+
+### 1. The automatic path: pull request 22 (`private-endpoint`)
+
+https://github.com/andrey-parkhomets/tf-platform-base/pull/22. The change: `modules/private-endpoint/variables.tf` gets a `validation` on
+`subresource_name`. The module had no tests. Nobody typed a command.
+
+| Step | What happened |
+|---|---|
+| PR opened | `agent-analysis.yml`: decision `tests_needed` (module has no tests, new validation, callers `blob`, `dfs`, `vault` still valid), with a test plan and findings. `select-auto-write.sh` picked the directory; the reusable `agent-write.yml` ran: agent, verify (no secrets), commit. Commit `cddb6a3` was pushed. The run was then cancelled by the bot's own push (the concurrency group), so its report comment was never posted. That bug is why concurrency is keyed by who pushed |
+| `agent remove cddb6a3`, then a push by a person | Revert commit `9a2728c`. The human push re-armed the workflow: analysis `tests_needed`, "Writing tests now", agent wrote 9 plan-mode runs (names, wiring, optional DNS zone group, the new validation accepted and rejected, tags). Verify job: fmt, init, validate pass, **9 passed, 0 failed**, mutation check 3 of 4 caught (a changed string literal survived). Commit `e09b73a`, report comment posted. The bot push did not re-run the analysis; the existing analysis comment got a "possibly out of date" note |
+| Another push by a person | Analysis `no_change_needed`: it lists the nine existing runs that cover the change, so no second write. Read the diff with the exact command from the prompt. Finding (medium): the new regex rejects underscores, but Azure group ids such as `blob_secondary` contain one. The agent could not verify it offline; it is a question for the author, and probably a real bug in this example change |
+
+### 2. Where the prompt was not enough: pull request 17 (`databricks-workspace`)
+
+https://github.com/andrey-parkhomets/tf-platform-base/pull/17. The first `agent coverage` wrote 14 tests and flagged the insecure default
+`public_network_access_enabled = true` as a finding. A later `agent coverage` run **pinned that default in a test**
+(`public_network_access_defaults_to_enabled`) and raised no finding, against the rule in the agent file. A prompt rule is not
+a control, so `check-test-quality.sh` now rejects a run that asserts an insecure value without setting that input itself. On the
+same pull request the verify job then failed with "asserts public_network_access_enabled == true on its default"; `agent coverage`
+removed the run, reported the default as a medium finding, verification passed (**12 passed, 0 failed**), commit `c21032f`.
+
+### 3. The review loop: pull request 7 (`log-analytics-workspace`)
+
 **Pull request 7:** https://github.com/andrey-parkhomets/tf-platform-base/pull/7 (kept open on purpose, so the conversation and
 the commits stay visible). The change: `modules/log-analytics-workspace/variables.tf` gets a `validation` on `retention_in_days`
-(30 to 730). The module had no tests. Everything below happened on GitHub with the real `claude-code-action`, model
-`claude-haiku-5-5`, the GitHub App `andrey-tf-test-agent`.
+(30 to 730). The module had no tests. This run used the comment-only version of the workflow (before the automatic path), which is
+still how people ask for more.
 
 | Step | What happened |
 |---|---|
@@ -101,6 +125,12 @@ the commits stay visible). The change: `modules/log-analytics-workspace/variable
 | Inline review comments on the test file, then `agent check comments` | Two threads. (1) "add a run that sets the lower bound 30 explicitly": the agent added `retention_accepts_the_lower_bound`, verification passed, commit `65e9930`, the thread was answered ("Addressed in 65e9930 ...") and **resolved**. (2) "make this an apply-mode test against a real workspace": **declined** with a reason (offline plan-mode tests only), reply posted, thread left **open** for a person |
 | Comment `agent remove 65e9930` | A revert commit `a57b5e7` by the App, no model involved |
 | Comment `agent remove ea32d26` (a human commit) | Refused with "was not made by the agent; revert it yourself", nothing pushed |
+
+What the real runs found and changed (each is a merged fix, not a plan): an unset variable compared with `!= '0'` skipped the job
+(`null` and `'0'` both coerce to 0); `download-artifact` with a pattern that matches one artifact does not create a folder; the
+agent's `Write` call was not allowed (only `Edit`); `claude-code-action` refuses a bot as actor, so the agent's own commit made the
+next run fail; the agent's push cancelled the run that made it; `git -C <dir> diff` did not match `Bash(git diff*)`; the comment
+sanitizer turned `pe-<name>` into `pe- name `; and a test pinned an insecure default.
 
 Other runs behind the design: the earlier, automatic version of the workflow on pull request 2 (`private-endpoint`, 9 tests, see
 `docs/lessons-from-github-runs.md`) and local runs against a `function-app` change including an injection attempt in the diff
@@ -128,6 +158,9 @@ code, so the agent is told not to bless insecure behaviour (for example `ftps_st
 
 ## Limitations
 
+- The analysis cannot run Terraform or the test-quality check, so it can say `no_change_needed` while the verify job fails on
+  existing tests (seen on pull request 17). The failing check is the signal; making the analysis run the (static) check is the
+  next change.
 - The automatic analysis (`agent-analysis.yml`) has not run on GitHub yet: it is new, it lives on the default branch only after
   merge, and `pull_request_target` workflows are read from there. The renderer is tested locally (`scripts/test-guards.sh`) and the
   workflow passes `actionlint`; the first real run is the next example to add. It also does not receive the Checkov SARIF.
