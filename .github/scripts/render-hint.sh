@@ -45,7 +45,7 @@ else
     echo
   fi
   cat <<'TXT'
-The agent writes nothing on its own. Ask for it in a comment on this pull request (people with write access; the whole comment must be just the command):
+The agent's automatic analysis (its own comment on this pull request) writes nothing to the branch. To have it write tests, ask for it in a comment on this pull request (people with write access; the whole comment must be just the command):
 
 | comment | what happens |
 |---|---|

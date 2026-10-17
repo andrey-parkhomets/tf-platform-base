@@ -5,7 +5,7 @@ description: Decide whether a changed Terraform module or stack needs new or upd
 
 # Analyze a Terraform change
 
-Input: the target directory, the mode (`coverage` or `revise`), the base and head SHAs, and optionally
+Input: the target directory, the mode (`analyze`, `coverage` or `revise`), the base and head SHAs, and optionally
 `.agent/checkov.sarif` and `.agent/threads.json`.
 
 ## Mode `revise`
@@ -25,6 +25,22 @@ Then continue at "Output". The decision is `updated` if you changed a test, othe
 
 Follow the steps below. When the target has no diff against the base (a module nobody changed in this pull request),
 treat the whole module as the change: cover its main contract.
+
+## Mode `analyze`
+
+Automatic and read-only: nothing is written but the report, and Terraform is not available. Follow Steps 1 to 4, then decide
+with this table instead of the one in step 5 (the verbs say what *should* happen, because nothing has been written):
+
+| Situation | Decision |
+|---|---|
+| Changed behaviour not covered, or the directory has no tests | `tests_needed` |
+| Existing tests are now wrong or too weak because of the change | `tests_need_update` |
+| Only comments, formatting, README or lock files changed, or existing `run` blocks already cover it (name them) | `no_change_needed` |
+| A stack with no logic of its own, or behaviour that cannot be tested offline | `skipped`, say what a human should verify |
+
+Also fill `affected_callers` (stacks or modules that call the directory, from CodeGraph) and `test_plan`: one line per `run`
+block you would write (what it asserts, and whether it uses `expect_failures`). Be specific enough that a reviewer can say
+"yes" or "no" to the plan. Do not claim a test passes: you ran nothing.
 
 ## Steps
 
