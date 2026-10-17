@@ -274,6 +274,8 @@ echo '{"dir":"modules/a","decision":"tests_needed","rationale":"x"}' >.agent/rep
 echo '{"dir":"modules/b","decision":"tests_needed","rationale":"x"}' >.agent/report/modules-b.json
 out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"}]' AUTO_DIRS='[{"dir":"modules/a"}]' AUTO_REASON='' "$scripts/render-analysis.sh")
 is "selected directory is announced, the other one is suggested" "$(grep -c 'Writing tests now' <<<"$out") $(grep -c 'agent coverage modules/b' <<<"$out") $(grep -c 'agent coverage modules/a' <<<"$out")" "1 1 0"
+out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"}]' AUTO_DIRS='[{"dir":"modules/a"},{"dir":"modules/b"}]' "$scripts/render-analysis.sh")
+is "writing now and 'no test work is recommended' never appear together" "$(grep -c 'Writing tests now' <<<"$out") $(grep -c 'No test work is recommended' <<<"$out")" "1 0"
 out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' AUTO_DIRS='[]' AUTO_REASON='the pull request has the no-auto-pr-agent label' "$scripts/render-analysis.sh")
 is "reason for not writing is shown" "$(grep -c 'Not written automatically: the pull request has the no-auto-pr-agent label' <<<"$out")" 1
 
