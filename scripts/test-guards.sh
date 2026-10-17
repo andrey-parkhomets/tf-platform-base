@@ -331,6 +331,11 @@ for f in .github/workflows/reusable-*.yml; do
 done
 is "a reusable workflow declares every secret it reads (a job there only sees what is declared)" "${undeclared:-none}" none
 
+echo "== tf-ai-analysis concurrency"
+cd "$repo" || exit 1
+# A label event that detect skips must not share a group with the real analysis (it would cancel it).
+is "label events that are ignored have their own concurrency group, keyed on both policy labels" "$(grep -A1 '^concurrency:' .github/workflows/tf-ai-analysis.yml | grep -c "'ignored'.*auto-pr-agent\|auto-pr-agent.*'ignored'")$(grep -A1 '^concurrency:' .github/workflows/tf-ai-analysis.yml | grep -c 'no-auto-pr-agent')" "11"
+
 echo "== Actions event policy documentation"
 cd "$repo" || exit 1
 events=$(for f in .github/workflows/*.yml; do awk '/^on:/{f=1;next} f&&/^[a-z]/{exit} f&&/^  [a-z_]+:/{gsub(/[: ]/,"");print}' "$f"; done | sort -u | grep -v '^workflow_call$')

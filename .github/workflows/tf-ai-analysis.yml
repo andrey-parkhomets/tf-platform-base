@@ -29,8 +29,11 @@ on:
 # A new push by a person replaces the run for the old one, so spend follows the head of the branch, not every push.
 # Pushes by bots (the agent's own commit) are a separate group: otherwise the commit the agent pushes would cancel the very
 # run that is committing it, before its report is posted.
+# Label events that `detect` will skip (any label other than the two policy labels) are a third group: they start a run that does
+# nothing, and in the shared group that run would cancel a real analysis (a label applied right after the pull request is opened,
+# for example by `gh pr create --label` or an automation, cancelled the analysis of the opening event).
 concurrency:
-  group: tf-ai-analysis-${{ github.event.pull_request.number }}-${{ github.event.sender.type == 'Bot' && 'bot' || 'person' }}
+  group: tf-ai-analysis-${{ github.event.pull_request.number }}-${{ ((github.event.action == 'labeled' && github.event.label.name != 'auto-pr-agent') || (github.event.action == 'unlabeled' && github.event.label.name != 'no-auto-pr-agent')) && 'ignored' || (github.event.sender.type == 'Bot' && 'bot' || 'person') }}
   cancel-in-progress: true
 
 permissions: {}
