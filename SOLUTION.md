@@ -117,13 +117,14 @@ same file), `private-endpoint` (no tests) and `key-vault` (has tests, nothing co
 | A push by a person | The analysis ran again: the two directories with tests came back `no_change_needed`; `private-endpoint` came back `tests_needed` but was **not** written automatically, because the PR already had 4 agent commits (limit 3). The comment said so and named the command |
 | `agent coverage modules/private-endpoint` | The manual command is not capped: tests written again, **10 passed**, 3 of 4 mutants caught |
 
-**The agent without Terraform, scratch pull request 39** (closed after the test; run through a throw-away caller, with that one branch
-allowed in the environment for the duration). The existing test file had a run that referenced a resource that does not exist. Run
-39064154879: the agent, with no Terraform available, corrected that run and added seven more; `verify` formatted the files and
-ran them: **8 passed, 0 failed**, mutation check 3 of 4, committed; the broken run was reported as a finding. Run 39064426134, a
-second test file with a plausible but false assertion (`is_manual_connection == true`, the module sets `false`): round 1 failed
-verification (9 passed, 1 failed), round 2 read the log, kept the assertion, reported a medium finding that the test and the module
-disagree, and nothing was committed. That is the intended outcome of "do not turn an assertion around to make it green".
+**The agent without Terraform, scratch pull request 39** (closed; the reports of both runs are in its comments). Run through a throw-away
+caller, with that one branch allowed in the environment for the duration; the caller and its runs were deleted afterwards. First run:
+the existing test file had a run that referenced a resource that does not exist. The agent, with no Terraform available, corrected
+that run and added seven more; `verify` formatted the files and ran them: **8 passed, 0 failed**, mutation check 3 of 4, committed;
+the broken run was reported as a finding. Second run, with a second test file holding a plausible but false assertion
+(`is_manual_connection == true`, the module sets `false`): round 1 failed verification (9 passed, 1 failed), round 2 read the log,
+kept the assertion, reported a medium finding that the test and the module disagree, and nothing was committed. That is the intended
+outcome of "do not turn an assertion around to make it green".
 
 **Quality override, pull request 17** (`databricks-workspace`): the agent once pinned an insecure default in a test
 (`public_network_access_enabled == true` on its default) and raised no finding. `check-test-quality.sh` fails such a run: the verify
