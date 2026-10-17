@@ -15,6 +15,8 @@ runs=""; out=""; index=""
 while [[ $# -gt 0 ]]; do case "$1" in --runs) runs=$2; shift 2 ;; --out) out=$2; shift 2 ;; --index) index=$2; shift 2 ;; *) echo "score.sh: unknown argument $1" >&2; exit 2 ;; esac; done
 index=${index:-$runs/runs.jsonl}
 [[ -d "$runs" && -n "$out" && -s "$index" ]] || { echo "score.sh: --runs must be a directory with an index (runs.jsonl or --index), and --out is required" >&2; exit 2; }
+# absolute: git -C and the working trees change the directory
+runs=$(cd "$runs" && pwd); index=$(cd "$(dirname "$index")" && pwd)/$(basename "$index"); out=$(cd "$(dirname "$out")" && pwd)/$(basename "$out")
 : >"$out"
 
 allowed_paths='^(modules|stacks)/[^/]+/tests/[A-Za-z0-9_.-]+\.(tftest\.hcl|tftest\.json|tfmock\.hcl)$'
