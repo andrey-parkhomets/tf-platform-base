@@ -24,6 +24,14 @@ GitHub only reads `*.yml` / `*.yaml` in this folder, so this file is documentati
 - Comment markers (`<!-- tf-test-agent-analysis -->`, `<!-- tf-test-agent-run ... -->`) are part of a stored contract with existing
   pull request comments; do not rename them with the workflows.
 
+## The agent's prompt and tools
+
+The text the model receives and the list of tools it may use are files in `.github/agent/`, rendered by
+`.github/scripts/render-agent-config.sh` (validated values, refuses an unfilled placeholder). `tf-ai-analysis` and `reusable-tf-ai-round`
+call the renderer; the evaluation harness (`evals/`) calls the same one, so an evaluation tests the agent that ships (checked: no workflow
+carries an inline prompt or tool list). The model per stage is a repository variable: `ANALYSIS_MODEL` for the analysis, `WRITER_MODEL` for
+the writer, each falling back to `CLAUDE_MODEL`, then to the default.
+
 ## Rules for secrets
 
 - A reusable workflow declares the secrets it reads under `workflow_call.secrets` (checked); the caller passes them by name, never
