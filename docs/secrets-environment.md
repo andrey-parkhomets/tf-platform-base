@@ -26,9 +26,25 @@ A job that does **not** declare the environment cannot read the secrets at all, 
 That is why the repository-level secrets must be **deleted**, not just copied.
 
 In the workflows, only the jobs that use a secret declare `environment: tf-ai-agent`: `analyze` (tf-ai-analysis), `agent` and
-`commit` (reusable-tf-ai-write), `creds` and `remove` (tf-ai-commands). Callers do not pass secrets down; a reusable workflow reads
-environment secrets in its own job. `scripts/test-guards.sh` fails if a job reads one of the secrets without declaring the
-environment, or if a caller passes them.
+`commit` (reusable-tf-ai-write), `creds` and `remove` (tf-ai-commands).
+
+### Reusable workflows need the secrets declared and passed
+
+A job inside a reusable workflow sees only the secrets that the workflow declares under `on.workflow_call.secrets` **and** that
+the caller passes. A caller job cannot declare an environment, so it passes `${{ secrets.NAME }}` (a repository secret; empty once
+the repository-level copies are deleted). The called job declares the environment, and the environment secret of the same name
+takes precedence over the passed value. Tested on this repository with an environment-only secret:
+
+| Called workflow | Caller | Value seen by the job |
+|---|---|---|
+| declares the secret | passes it by name | the environment value |
+| declares nothing | `secrets: inherit` | the environment value |
+| declares the secret | passes nothing | **empty** |
+
+The first row is what `reusable-tf-ai-write` does (explicit; `secrets: inherit` is not used). The last row is the mistake that
+broke the write path once: the secrets were set, and the jobs still saw nothing. `scripts/test-guards.sh` fails if a job reads
+one of the secrets without declaring the environment, if a reusable workflow reads a secret it does not declare, or if
+`secrets: inherit` appears.
 
 ## One-time setup
 
@@ -58,13 +74,13 @@ Selected branches and tags, add `main`; then add the three secrets under Environ
 Order matters, and it differs for the two kinds of job:
 
 - A plain job that declares the environment also sees repository secrets, so it keeps working while the environment is still empty.
-- A job inside a **reusable workflow** (`agent` and `commit` in `reusable-tf-ai-write`) sees only what the caller passes, and the
-  callers pass nothing. It reads the environment secrets or it gets empty values: the agent step fails with "ANTHROPIC_API_KEY ...
-  is required" and the commit step with "The 'client-id' (or deprecated 'app-id') input must be set". It was found this way
-  when the workflows were merged before the environment secrets were set.
+- A job inside a **reusable workflow** (`agent` and `commit` in `reusable-tf-ai-write`) reads the environment secret or gets what the
+  caller passed. If the environment is empty and the repository-level copies are already deleted, it gets empty values: the agent
+  step fails with "ANTHROPIC_API_KEY ... is required" and the commit step with "The 'client-id' (or deprecated 'app-id') input
+  must be set".
 
-So: create the environment and set its three secrets **before** merging the workflow change (steps 1 and 2), check that a run works
-(step 3 of "Check it"), and only then delete the repository-level copies.
+So: create the environment and set its three secrets (steps 1 and 2), check that a run works (step 2 of "Check it"), and only
+then delete the repository-level copies (step 3).
 
 ## Check it
 
