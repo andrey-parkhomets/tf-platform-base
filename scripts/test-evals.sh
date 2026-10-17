@@ -198,6 +198,13 @@ is "the case c2 expects no_change_needed and the stub said tests_needed, so it f
 is "no scoring working tree is left behind" "$(find "$tmp/wt" -maxdepth 1 -name 'score-*' | wc -l | tr -d ' ')" 0
 unset STUB_REPORT STUB_TESTS STUB_COST
 
+echo "== evals: score.sh with relative paths (found in the third live run: every writer run was scored as a guard failure)"
+export STUB_REPORT="$tmp/report.json" STUB_TESTS="$tmp/tests.hcl" STUB_COST=0.1
+"$repo/evals/run.sh" --out "$tmp/e2" --models claude-haiku-5-5 --repeats 1 --budget 5 --stage writer --cases c1 >/dev/null
+( cd "$tmp" && PATH="$tmp/bin:$PATH" "$repo/evals/score.sh" --runs e2 --index e2/runs.jsonl --out rel-scores.jsonl >/dev/null )
+is "a writer run scored with RELATIVE --runs / --index / --out is verified, not mistaken for a guard failure" "$(jq -c 'select(.stage == "writer") | [.pass, .criteria.guard_ok, .criteria.verify_ok]' "$tmp/rel-scores.jsonl")" "[true,true,true]"
+unset STUB_REPORT STUB_TESTS STUB_COST
+
 echo "== evals: summarize.sh"
 cat >"$tmp/scores.jsonl" <<'JSON'
 {"case":"a","stage":"writer","model":"M1","repeat":1,"cost_usd":0.10,"turns":10,"criteria":{"verify_ok":true,"forbid_ok":true,"pass":true},"pass":true}
