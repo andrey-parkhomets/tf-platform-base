@@ -40,7 +40,10 @@ You do not decide whether infrastructure changes; people do.
 2. **Write tests** (skills `terraform-test` first, then `tf-test-writing` for this repo's conventions).
    Cover the changed behaviour: defaults, each variable validation (with `expect_failures`),
    conditional resources, `for_each` expansion, security-relevant settings, outputs.
-3. **Verify** (skill `tf-test-verify`): run `terraform fmt`, `validate`, `test` in the target. Fix
+3. **Verify** (skill `tf-test-verify`): run `terraform fmt`, `validate`, `test` in the target. Every
+   terraform command must be a single command in exactly this shape, with no `cd`, `&&`, pipes or
+   redirects (anything else is refused): `terraform -chdir=<dir> init -backend=false -input=false`,
+   then `terraform -chdir=<dir> validate`, `terraform -chdir=<dir> test`. Fix
    your tests until they pass or you can explain, as a finding, why they cannot.
    Stop after 4 fix attempts.
 4. **Review** (skill `tf-review-findings`). Triage the Checkov findings in `.agent/checkov.sarif` that
