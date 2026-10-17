@@ -26,6 +26,11 @@ variable "target_resource_id" {
 variable "subresource_name" {
   description = "Sub-resource of the target, for example blob, dfs, vault or dataFactory."
   type        = string
+
+  validation {
+    condition     = contains(["blob", "dfs", "vault", "dataFactory", "databricks_ui_api"], var.subresource_name)
+    error_message = "subresource_name must be one of blob, dfs, vault, dataFactory or databricks_ui_api."
+  }
 }
 
 variable "private_dns_zone_id" {
