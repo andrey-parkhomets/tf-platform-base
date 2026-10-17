@@ -26,7 +26,8 @@ esac
 [[ "$model" =~ ^[A-Za-z0-9._-]+$ && "$rep" =~ ^[0-9]+$ && "$turns" =~ ^[0-9]+$ ]] || { echo "run-stage: bad argument" >&2; exit 2; }
 
 id=$(jq -er .id "$case_dir/case.json")
-mkdir -p "$out"
+# absolute: the CLI runs inside the working tree
+mkdir -p "$out" && out=$(cd "$out" && pwd)
 wt="${EVAL_TMP:-${RUNNER_TEMP:-/tmp}}/eval-$id-$stage-${model//[^A-Za-z0-9]/_}-$rep-$$"
 trap 'git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true' EXIT
 
@@ -59,9 +60,11 @@ rm -f "$out/result.raw"
 ( cd "$wt" && git ls-files -z --others --exclude-standard -- ':(glob)modules/*/tests/*' ':(glob)stacks/*/tests/*' | xargs -0 -r git add -N -- \
     && git diff --binary -- ':(glob)modules/*/tests/*' ':(glob)stacks/*/tests/*' ) >"$out/tests.patch" 2>/dev/null
 
-jq -nc --arg case "$id" --arg stage "$stage" --arg model "$model" --argjson rep "$rep" --argjson finished "$finished" \
+err=$(head -c 300 "$out/stderr.log" 2>/dev/null | tr '\n' ' ')
+jq -nc --arg case "$id" --arg stage "$stage" --arg model "$model" --argjson rep "$rep" --argjson finished "$finished" --argjson rc "$rc" --arg err "$err" \
   --slurpfile r "$out/result.json" \
   '{case: $case, stage: $stage, model: $model, repeat: $rep, finished: $finished,
     cost_usd: ($r[0].total_cost_usd // 0), turns: ($r[0].num_turns // 0), duration_ms: ($r[0].duration_ms // 0),
     is_error: ($r[0].is_error // true), denials: (($r[0].permission_denials // []) | length),
-    model_used: (($r[0].modelUsage // {}) | keys | join(","))}' >"$out/run.json"
+    model_used: (($r[0].modelUsage // {}) | keys | join(",")), exit_code: $rc,
+    error: (if $finished then null else ($err | .[0:300]) end)}' >"$out/run.json"

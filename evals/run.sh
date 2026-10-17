@@ -6,7 +6,8 @@
 #   usage: evals/run.sh --out DIR [--stage analysis|writer|both] [--models "m1 m2"] [--repeats N] [--cases id,id|all]
 #                       [--budget USD] [--force] [--dry-run]
 #   env:   CASES_DIR (default: <AGENT_REF_DIR>/evals/cases), CLAUDE_BIN, AGENT_REF_DIR (see prepare-case.sh)
-#   exit:  0 done (also when the budget stopped it; the skipped runs are recorded), 3 the estimate exceeds the budget, 2 bad arguments
+#   exit:  0 done (also when the budget stopped it; the skipped runs are recorded), 3 the estimate exceeds the budget, 2 bad arguments,
+#          4 not a single run finished (nothing was spent for nothing: the messages are printed)
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=${EVAL_REPO:-$(cd "$here/.." && pwd)}
@@ -24,7 +25,8 @@ done
 [[ "$stage" =~ ^(analysis|writer|both)$ && "$repeats" =~ ^[1-9][0-9]*$ && "$budget" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "run.sh: bad stage, repeats or budget" >&2; exit 2; }
 for m in $models; do [[ "$m" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "run.sh: bad model $m" >&2; exit 2; }; done
 [[ "$want" == all || "$want" =~ ^[a-z0-9,-]+$ ]] || { echo "run.sh: bad --cases" >&2; exit 2; }
-[[ $dry -eq 1 ]] || mkdir -p "$out"
+# absolute: the stages change directory
+[[ $dry -eq 1 ]] || { mkdir -p "$out" && out=$(cd "$out" && pwd); }
 
 # the cases and the stages each one has
 mapfile -t case_ids < <(for d in "$cases_dir"/*/; do [[ -f "$d/case.json" ]] && jq -r .id "$d/case.json"; done | sort)
@@ -86,3 +88,11 @@ for p in "${plan[@]}"; do
   fi
 done
 echo "spent: USD $spent"
+# a harness that spends nothing and reports success hides its own failure
+started=$(jq -s '[.[] | select(.skipped == null)] | length' "$out/runs.jsonl"); unfinished=$(jq -s '[.[] | select(.skipped == null and .finished == false)] | length' "$out/runs.jsonl")
+errors=$(jq -s '[.[] | select(.skipped == "error")] | length' "$out/runs.jsonl")
+if [[ $unfinished -gt 0 || $errors -gt 0 ]]; then
+  echo "run.sh: $unfinished run(s) did not finish and $errors could not start. First messages:" >&2
+  jq -r 'select(.skipped == "error" or .finished == false) | "  \(.case) \(.stage) \(.model) #\(.repeat): \(.error // .skipped // "no message")"' "$out/runs.jsonl" | head -5 >&2
+fi
+if [[ $((started - unfinished)) -le 0 ]]; then echo "run.sh: no run finished" >&2; exit 4; fi

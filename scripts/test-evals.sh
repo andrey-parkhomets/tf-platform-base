@@ -113,6 +113,18 @@ is "with EVAL_CODEGRAPH=1 the index is built in the case's working tree before t
 CG_LOG="$tmp/cg2.log" PATH="$tmp/cgbin:$PATH" "$lib/run-stage.sh" analysis "$tmp/cases/c1" claude-haiku-5-5 1 "$tmp/o/cg2" >/dev/null
 is "and not otherwise" "$(test -e "$tmp/cg2.log" && echo built || echo skipped)" skipped
 
+echo "== evals: a relative --out and loud failures (found in the first live run)"
+export STUB_REPORT="$tmp/report.json" STUB_COST=0.3
+( cd "$tmp" && "$repo/evals/run.sh" --out rel-out --models claude-haiku-5-5 --stage analysis --cases c1 --budget 5 >/dev/null )
+is "a relative --out works: the stages change directory, so the path is made absolute" "$(jq -c '[.finished,.cost_usd]' "$tmp/rel-out/claude-haiku-5-5/c1/analysis-1/run.json") $(test -s "$tmp/rel-out/claude-haiku-5-5/c1/analysis-1/guard.txt" && echo guard)" "[true,0.3] guard"
+unset STUB_COST STUB_REPORT
+export STUB_FAIL=1
+out=$("$repo/evals/run.sh" --out "$tmp/loud" --models claude-haiku-5-5 --stage analysis --cases c1 --budget 5 2>&1); rc=$?
+is "when no run finishes, run.sh exits 4 instead of reporting success" "$rc" 4
+is "and prints why: the CLI's own message" "$(grep -c 'stub: boom' <<<"$out")" 1
+is "the message is also in run.json" "$(jq -r '.error' "$tmp/loud/claude-haiku-5-5/c1/analysis-1/run.json" | grep -c 'stub: boom')" 1
+unset STUB_FAIL
+
 echo "== evals: score-analysis.sh"
 sa() { "$lib/score-analysis.sh" "$tmp/cases/c1" "$1"; }
 mkrun() { # mkrun <dir> <report json or -> [tests patch text]
