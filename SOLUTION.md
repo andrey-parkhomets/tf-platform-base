@@ -126,7 +126,7 @@ I went through `anthropics/claude-code-action` `docs/security.md` point by point
 
 ## Example run
 
-**Pull request:** _link added after the run on GitHub_ (see `Open items` below if it is still missing).
+**Pull request:** https://github.com/andrey-parkhomets/tf-platform-base/pull/2 (workflow run 39014117442, model `claude-haiku-5-5`, 42 turns, USD 0.023).
 
 **Change:** `modules/private-endpoint/variables.tf` gets a `validation` block on `subresource_name`
 (only `blob`, `dfs`, `vault`, `dataFactory`, `databricks_ui_api`).
@@ -303,8 +303,23 @@ not to bless insecure behaviour (for example `ftps_state = "AllAllowed"` in `fun
 - Add `terraform test` integration runs against an ephemeral sandbox subscription on merge, outside this offline workflow.
 - Eval suite for the agent: a set of known changes and expected findings run on every skill or prompt change, with a score.
 - Dependabot for action SHAs, a scheduled check for newer vendored skills, signed commits and branch protection that requires `verify`.
+**The real run on GitHub** (the comment on the pull request above is the output a reviewer sees):
+
+- **Decision:** `created`. Skills used: `tf-change-analysis`, `terraform-test`, `tf-test-writing`, `tf-test-verify`, `tf-review-findings`.
+- **Tests:** nine `run` blocks (names, placement, requested subresource, an accepted value, an unknown and a wrong-case value
+  rejected, no DNS zone group by default, a zone group when a zone is given, tags).
+- **Verification in the separate job:** fmt, init, validate, test all pass, 9 passed, 0 failed. Mutation check: 3 of 4 caught.
+  The one it misses is the first string literal in `main.tf`.
+- **Findings for reviewers:** the shared allow-list accepts any sub-resource for any target type (for example `vault` on a storage
+  account); the stack creates the lake and vault endpoints without a private DNS zone; the `name` input is not validated.
+- **Two earlier runs of the same pull request** are why the workflow looks as it does. The first failed on the turn limit (see
+  "What the first runs on GitHub showed"). The second passed, but the agent's `terraform` calls were refused (6 denials), so it
+  reported its tests as unverified and the mutation score was 1 of 4; the separate verify job still passed them. The transcript
+  is now kept as the artifact `agent-transcript-<slug>`. The fix was to give the agent one allowed command shape
+  (`terraform -chdir=<dir> …`, no `cd`, `&&` or pipes) and to ask for name and tag assertions. In the third run it had a single
+  denial, a `git -C … diff`, which is harmless.
+
 - Cost controls: per-PR token budget, skip drafts, cancel superseded runs (already done with `concurrency`).
 
 ## Open items
 
-- Link the example pull request here after the first run on GitHub (needs the secret and a token with the `workflow` scope).
