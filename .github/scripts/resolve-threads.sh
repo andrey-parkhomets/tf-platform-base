@@ -18,7 +18,7 @@ resolve_q='mutation($t:ID!){resolveReviewThread(input:{threadId:$t}){thread{id}}
 jq -c '(.threads // [])[:20][]' "$report" 2>/dev/null | while IFS= read -r item; do
   id=$(jq -r '.id // ""' <<<"$item"); outcome=$(jq -r '.outcome // ""' <<<"$item")
   jq -e --arg id "$id" 'any(.[]; .id == $id)' "$threads" >/dev/null || { echo "skip unknown thread id" >&2; continue; }
-  text=$(jq -r '.reply // ""' <<<"$item" | head -c 800 | tr -d '\r' | sed -e 's/[<>]/ /g' -e 's/@/@\xe2\x80\x8b/g')
+  text=$(jq -r '.reply // ""' <<<"$item" | head -c 800 | tr -d '\r' | sed -e 's/</‹/g' -e 's/>/›/g' -e 's/@/@\xe2\x80\x8b/g')
   case "$outcome" in
     addressed) body="Addressed in ${sha:0:7}. ${text}";;
     declined)  body="Not changed. ${text}";;

@@ -185,6 +185,12 @@ cd "$repo" || exit 1
 expect_rc "no workflow inherits all secrets" 1 grep -rq 'secrets: inherit' .github/workflows
 is "the write path has one implementation" "$(grep -lE 'claude-code-action' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "agent-analysis.yml agent-write.yml "
 
+echo "== placeholders survive the comment sanitizer"
+r="$tmp/ph"; mkdir -p "$r/.agent/report"; cd "$r" || exit 1
+echo '{"dir":"modules/a","decision":"no_change_needed","rationale":"names are pe-<name> and <script>alert(1)</script>"}' >.agent/report/modules-a.json
+out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-analysis.sh")
+is "placeholder kept, tags neutralised" "$(grep -c 'pe-‹name›' <<<"$out") $(grep -c '<script>' <<<"$out")" "1 0"
+
 echo "== select-auto-write.sh"
 r="$tmp/sel"; mkdir -p "$r/rep"; cd "$r" || exit 1
 m='[{"dir":"modules/a","slug":"modules-a"},{"dir":"modules/b","slug":"modules-b"},{"dir":"modules/c","slug":"modules-c"},{"dir":"modules/d","slug":"modules-d"}]'

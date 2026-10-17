@@ -17,7 +17,7 @@ marker="<!-- tf-test-agent-run ${RUN_ID:-} -->"
 run_url=${RUN_URL:-}
 
 clean() { # clean <max chars>
-  head -c "${1:-1500}" | sed -e 's/[<>]/ /g' -e 's/@/@​/g' | tr -d '\r'
+  head -c "${1:-1500}" | sed -e 's/</‹/g' -e 's/>/›/g' -e 's/@/@​/g' | tr -d '\r'
 }
 icon() { case "$1" in pass|success|true) echo "✅";; none|skipped) echo "➖";; *) echo "❌";; esac; }
 
