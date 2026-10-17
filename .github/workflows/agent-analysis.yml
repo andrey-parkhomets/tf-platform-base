@@ -277,6 +277,8 @@ jobs:
         with:
           pattern: "analysis-*"
           path: dl
+          # One flat directory whatever the number of matches: a single match is otherwise extracted without its own folder.
+          merge-multiple: true
         continue-on-error: true
       - name: Render comment
         env:
@@ -285,7 +287,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           mkdir -p .agent/report
-          for f in dl/analysis-*/*.json; do [ -f "$f" ] && cp "$f" .agent/report/ || true; done
+          for f in dl/*.json; do [ -f "$f" ] && cp "$f" .agent/report/ || true; done
           .github/scripts/render-analysis.sh >.agent/comment.md
           cat .agent/comment.md >>"$GITHUB_STEP_SUMMARY"
       - name: Post or update the comment

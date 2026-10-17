@@ -174,6 +174,7 @@ is "comment has its own marker" "$(head -1 <<<"$out")" "<!-- tf-test-agent-analy
 echo '{"dir":"modules/a","decision":"rm -rf /"}' >.agent/report/modules-a.json
 out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-analysis.sh")
 is "unknown decision is not echoed or acted on" "$(grep -c 'rm -rf' <<<"$out") $(grep -c 'agent coverage modules/a' <<<"$out")" "0 0"
+is "no valid report never says 'no test work is recommended'" "$(grep -c 'No test work is recommended' <<<"$out") $(grep -c 'did not complete' <<<"$out")" "0 1"
 
 echo
 [[ $fail -eq 0 ]] && echo "all guard tests passed" || echo "SOME GUARD TESTS FAILED"
