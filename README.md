@@ -57,14 +57,13 @@ docker run --rm -v "$PWD":/ws -w /ws --entrypoint terraform-docs quay.io/terrafo
 
 ## Pull request automation
 
-A workflow detects the changed modules, lints, scans with Checkov, lets an agent create or update `terraform test`
-files, re-runs them without secrets and posts the result as one comment on the pull request.
-See [SOLUTION.md](SOLUTION.md). To try it locally without pushing anything (needs Docker and `act`):
+Every pull request that changes a module or stack gets lint, Checkov and the existing tests, and one comment that lists
+modules without tests. The agent that writes tests runs only when someone asks, with a comment on the pull request:
+`agent coverage`, `agent check comments` or `agent remove <sha>`. Verified tests are committed to the branch.
+See [SOLUTION.md](SOLUTION.md). Fast local tests of the safety scripts (no Docker, no network):
 
 ```sh
-scripts/test-guards.sh                    # fast tests of the safety scripts
-scripts/simulate-pr.sh one --agent fake   # whole workflow, stand-in for the model (also: multi, docs, stale-docs, fork, violation)
-scripts/simulate-pr.sh one                # real agent: needs ANTHROPIC_API_KEY and a public-read-only GITHUB_TOKEN in ./.secrets (see SOLUTION.md)
+scripts/test-guards.sh
 ```
 
 ## Conventions

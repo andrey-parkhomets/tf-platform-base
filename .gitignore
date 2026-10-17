@@ -7,7 +7,6 @@ crash.log
 
 # local tooling
 .secrets
-.act/
 .agent/
 .pre-commit-cache/
 .codegraph/

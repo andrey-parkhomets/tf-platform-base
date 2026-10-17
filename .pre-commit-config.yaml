@@ -12,7 +12,7 @@ repos:
 
   - repo: local
     hooks:
-      # An Anthropic API key in the repository is a leaked key. Keys live in GitHub secrets (and, for local act runs, in the
+      # An Anthropic API key in the repository is a leaked key. Keys live in GitHub secrets (and, for local runs, in the
       # git-ignored .secrets file).
       - id: no-anthropic-api-key
         name: no Anthropic API keys
