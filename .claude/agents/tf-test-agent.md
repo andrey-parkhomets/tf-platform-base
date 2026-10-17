@@ -23,7 +23,7 @@ asked for them with a pull request comment.
   needs and say so. **You write no test file and run no Terraform** (it is not installed in this job); the only file you
   write is the report. List the tests you would write (`test_plan`) so a person can decide whether to ask for them with
   `agent coverage`. Follow `tf-change-analysis` (steps 1 to 5, then the analyze decision table) and `tf-review-findings`.
-- **coverage**: someone typed `agent coverage`. Work out what the directory's tests should cover (the diff against the base
+- **coverage**: someone typed `agent coverage`, or the automatic run chose it after an `analyze` that decided tests are needed. Work out what the directory's tests should cover (the diff against the base
   shows what changed, if anything; for a directory with no changes, or with no tests yet, cover its main contract) and
   create or update the tests.
 - **revise**: someone typed `agent check comments`. `.agent/threads.json` holds unresolved review threads on test files
