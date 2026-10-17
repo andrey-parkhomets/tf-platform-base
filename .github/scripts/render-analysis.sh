@@ -21,6 +21,7 @@ echo
 count=$(jq 'length' <<<"$MATRIX")
 total=${TOTAL:-$count}
 suggest=()
+valid=0
 for i in $(seq 0 $((count - 1))); do
   dir=$(jq -r ".[$i].dir" <<<"$MATRIX"); slug=$(jq -r ".[$i].slug" <<<"$MATRIX")
   report=".agent/report/$slug.json"
@@ -58,6 +59,7 @@ for i in $(seq 0 $((count - 1))); do
     fi
     echo "Skills used: $(jq -r '(.skills_used // []) | map("`" + . + "`") | join(", ")' "$report" | clean 300)"
     echo
+    [[ $decision == unknown ]] || valid=$((valid + 1))
     case "$decision" in tests_needed|tests_need_update) suggest+=("\`agent coverage $dir\`") ;; esac
   else
     echo "**Decision:** none. No valid report was produced for this directory (see the workflow run)."
@@ -71,6 +73,8 @@ if [[ "$total" -gt "$count" ]]; then
 fi
 if [[ ${#suggest[@]} -gt 0 ]]; then
   echo "To have the tests written, verified without secrets and committed to this branch, comment (people with write access, one command per comment): ${suggest[*]}."
+elif [[ $valid -eq 0 ]]; then
+  echo "The analysis did not complete, so there is no recommendation. \`agent coverage [dir]\` still writes tests on request."
 else
   echo "No test work is recommended. \`agent coverage [dir]\` still writes tests on request."
 fi
