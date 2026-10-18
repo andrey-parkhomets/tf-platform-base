@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Cheap static checks that a test file can actually fail.
+#  - every test file has at least one run block (`terraform test` exits 0 with "0 passed" on a file without runs)
 #  - every run block has at least one assert block or expect_failures
 #  - no run block uses `command = apply` (no cloud, no credentials)
 #  - no assert is a constant `true`
@@ -37,7 +38,7 @@ for f in "$dir"/tests/*.tftest.hcl; do
           printf "::error file=%s::run \"%s\" asserts %s == %s on its default. Do not pin an insecure default in a test; report it as a finding instead\n", file, name, attr[j], val[j]; bad = 1
         }
     }
-    /^run[ \t]+"/ { finish(); inrun = 1; asserts = 0; expects = 0; name = $2; gsub(/"/, "", name); delete hit; delete assigned }
+    /^run[ \t]+"/ { finish(); runs++; inrun = 1; asserts = 0; expects = 0; name = $2; gsub(/"/, "", name); delete hit; delete assigned }
     inrun && /^[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*=/ && !/^[ \t]*(condition|error_message|command|expect_failures)[ \t]*=/ { l = $0; sub(/^[ \t]*/, "", l); sub(/[ \t]*=.*/, "", l); assigned[l] = 1 }
     inrun && /^[ \t]*condition[ \t]*=/ { for (j = 1; j <= k; j++) if ($0 ~ ("[^A-Za-z0-9_]" attr[j] "[ \t]*==[ \t]*" val[j] "([^A-Za-z0-9_]|$)")) hit[j] = 1 }
     inrun && /^[ \t]*assert[ \t]*\{/ { asserts++ }
@@ -47,7 +48,7 @@ for f in "$dir"/tests/*.tftest.hcl; do
     /^[ \t]*condition[ \t]*=.*(==|!=)[ \t]*[\[{]/ {
       printf "::error file=%s::run \"%s\": the condition compares with a [..] or {..} literal. A literal is a tuple or object, so == against a list, set or map attribute is always false in Terraform (different types). Use contains(x, v), one(x), length(x), an index or key, or convert the literal: toset([..]), tolist([..]), tomap({..})\n", file, name; bad = 1
     }
-    END { finish(); exit bad }
+    END { finish(); if (!runs) { printf "::error file=%s::no run block: terraform test passes a file without runs (0 passed), so it tests nothing\n", file; bad = 1 } exit bad }
   ' "$f" || status=1
 done
 exit "$status"
