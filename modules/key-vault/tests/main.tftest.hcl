@@ -55,3 +55,16 @@ run "accepts_upper_case_guid_and_passes_it_to_the_vault" {
     error_message = "The vault must be created in the tenant given in tenant_id, unchanged."
   }
 }
+
+run "accepts_all_zero_placeholder_tenant_used_by_stack_inputs" {
+  command = plan
+
+  variables {
+    tenant_id = "00000000-0000-0000-0000-000000000000"
+  }
+
+  assert {
+    condition     = azurerm_key_vault.this.tenant_id == "00000000-0000-0000-0000-000000000000"
+    error_message = "The all-zero placeholder GUID used by the stack inputs must pass validation and be passed to the vault unchanged."
+  }
+}
