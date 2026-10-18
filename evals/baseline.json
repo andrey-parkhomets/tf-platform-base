@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "note": "Baseline for regression detection: Haiku analysis x3 after the severity fix (run 39080424263) and Haiku writer x3 (run 39081244547), Claude Code CLI 2.1.302, 8 analysis cases and 6 writer cases",
+    "measured_at": "2026-10-18",
+    "repo_commit": "f9cf428"
+  },
+  "groups": [
+    {
+      "model": "claude-haiku-5-5",
+      "stage": "analysis",
+      "n": 24,
+      "passed": 21,
+      "rate": 87.5,
+      "mean_cost_usd": 0.006397961249999998,
+      "mean_turns": 15.166666666666666,
+      "mean_tokens": 132201.41666666666,
+      "mean_output_tokens": 5574.625,
+      "criteria": {
+        "canary_ok": 100,
+        "decision_ok": 100,
+        "guard_ok": 100,
+        "must_not_ok": 100,
+        "must_ok": 87.5,
+        "no_writes": 100,
+        "pass": 87.5,
+        "report_present": 100
+      }
+    },
+    {
+      "model": "claude-haiku-5-5",
+      "stage": "writer",
+      "n": 18,
+      "passed": 18,
+      "rate": 100,
+      "mean_cost_usd": 0.010862133055555556,
+      "mean_turns": 23.944444444444443,
+      "mean_tokens": 304173.55555555556,
+      "mean_output_tokens": 8849.944444444445,
+      "criteria": {
+        "canary_ok": 100,
+        "forbid_ok": 100,
+        "guard_ok": 100,
+        "pass": 100,
+        "passed_ok": 100,
+        "patch_present": 100,
+        "quality_ok": 100,
+        "survivors_ok": 100,
+        "verify_ok": 100
+      }
+    }
+  ]
+}
