@@ -32,3 +32,26 @@ run "creates_one_role_assignment_per_reader" {
     error_message = "Expected one role assignment for each secret reader."
   }
 }
+
+run "rejects_tenant_id_that_is_not_a_guid" {
+  command = plan
+
+  variables {
+    tenant_id = "contoso-tenant"
+  }
+
+  expect_failures = [var.tenant_id]
+}
+
+run "accepts_upper_case_guid_and_passes_it_to_the_vault" {
+  command = plan
+
+  variables {
+    tenant_id = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+  }
+
+  assert {
+    condition     = azurerm_key_vault.this.tenant_id == "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+    error_message = "The vault must be created in the tenant given in tenant_id, unchanged."
+  }
+}
