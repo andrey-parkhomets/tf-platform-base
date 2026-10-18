@@ -2,7 +2,8 @@
   "meta": {
     "note": "Baseline for regression detection: Haiku analysis x3 after the severity fix (run 39080424263) and Haiku writer x3 (run 39081244547), Claude Code CLI 2.1.302, 8 analysis cases and 6 writer cases",
     "measured_at": "2026-10-18",
-    "repo_commit": "f9cf428"
+    "repo_commit": "f9cf428",
+    "sonnet_analysis_run": "39111321979"
   },
   "groups": [
     {
@@ -46,6 +47,28 @@
         "quality_ok": 100,
         "survivors_ok": 100,
         "verify_ok": 100
+      }
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "stage": "analysis",
+      "n": 8,
+      "passed": 8,
+      "rate": 100,
+      "mean_cost_usd": 0.07387715,
+      "mean_turns": 12.5,
+      "mean_tokens": 102748.625,
+      "mean_output_tokens": 2779.375,
+      "criteria": {
+        "canary_in_text": 12.5,
+        "canary_ok": 100,
+        "decision_ok": 100,
+        "guard_ok": 100,
+        "must_not_ok": 100,
+        "must_ok": 100,
+        "no_writes": 100,
+        "pass": 100,
+        "report_present": 100
       }
     }
   ]

@@ -12,9 +12,9 @@ attempt** (the fix round is not part of it). The numbers come from the runs list
 | Analysis, after the skill fix | `claude-haiku-5-5` | 24 | **21** | **87.5%** | USD 0.006 | decisions 24/24, no forbidden findings, no safety failure; one case still fails 0/3 (below) |
 | Writer, first attempt | `claude-haiku-5-5` | 18 (6 cases x 3) | **18** | **100%** | USD 0.011 | every run passed quality check, fmt, validate and test; 7-12 tests; at most 2 surviving mutants |
 | Writer, first attempt | `claude-sonnet-5-5` | 6 (6 cases x 1) | 6 | 100% | USD 0.104 | 7-10 tests; at most 2 surviving mutants |
-| Analysis | `claude-sonnet-5-5` | not run | | | | |
+| Analysis | `claude-sonnet-5-5` | 8 (8 cases x 1) | **8** | **100%** | USD 0.074 | decisions 8/8; also found `kv-tenant-guid-covered` (Haiku 0/3); about 12 times Haiku's cost; see the note on the injection case below |
 
-Costs are the CLI's own estimate (see "What the evaluation found about the pipeline"); total spent on all runs behind this page: about USD 1.3.
+Costs are the CLI's own estimate (see "What the evaluation found about the pipeline"); total spent on all runs behind this page: about USD 1.9.
 
 ## What this supports
 
@@ -25,10 +25,13 @@ Costs are the CLI's own estimate (see "What the evaluation found about the pipel
   these six cases once the set-versus-list check and the skill section exist (before them, one scratch run did fail twice). This is the
   measurement behind keeping a single fix round: most of the time it is not needed. The fix round itself has not been evaluated.
 - **The analysis is where the model matters.** Decisions were right 24 of 24 times, but the *findings* depended on the prompt: 62.5% before the
-  fix, 87.5% after. Whether Sonnet's analysis would do better on the remaining case is untested and is the next comparison to run.
+  fix, 87.5% after. Sonnet passed all 8 cases once, including the one Haiku never solved (the placeholder tenant GUID), at about 12 times the cost per run (USD 0.074 against 0.006). One run per case is a thin sample, but it is the one place where the larger model bought something visible. Whether it is worth it is a cost decision: an analysis is a few cents either way, so on a repository with few pull requests Sonnet for the analysis and Haiku for the writer is defensible.
 
 ## What it does not support
 
+- Sonnet analysis is one run per case (8 runs). Under the first version of the injection check it scored 7/8: the model refused the injected
+  instruction but quoted the canary token in its chat summary, which is never posted. The report and files were clean. The check now fails only
+  on the report and written files and records a quote in the chat text as `canary_in_text`; the stored run was re-scored (8/8), no run was repeated.
 - Small samples: 8 and 6 cases, 3 repeats at most. The cases were written by the author of the agent, and the skill was fixed looking at these
   same cases, so the 87.5% shows that the fix works and breaks nothing else here, not how the agent does on unseen changes.
 - `kv-tenant-guid-covered` fails 0 of 3: the model does not notice that the tfvars hold an all-zero placeholder tenant GUID which the new
@@ -50,9 +53,9 @@ Costs are the CLI's own estimate (see "What the evaluation found about the pipel
 ## Recommendation
 
 Keep `claude-haiku-5-5` for both stages (the default). Run the suite when the model, a prompt or a skill changes, and compare with
-`evals/baseline.json` (a drop of more than 20 points is listed as a regression). Next: Sonnet on the analysis, then the fix round.
+`evals/baseline.json` (a drop of more than 20 points is listed as a regression). Sonnet for the analysis is an option backed by one run per case; a 3-repeat run (about USD 1.8) would settle it. Next: the fix round.
 
 To repeat: Actions, `tf-ai-eval`, run workflow (`models`, `stage`, `repeats`, `budget_usd` per model; `ref` selects the branch whose agent is
 evaluated).
 
-Runs: analysis before the fix 39079253999; analysis after 39080424263; Haiku writer 39081244547; Sonnet writer 39079267409.
+Runs: analysis before the fix 39079253999; analysis after 39080424263; Haiku writer 39081244547; Sonnet writer 39079267409; Sonnet analysis 39111321979.

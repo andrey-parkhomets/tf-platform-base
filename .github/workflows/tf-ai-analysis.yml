@@ -7,7 +7,7 @@ name: tf-ai-analysis
 # `agent coverage` (reusable-tf-ai-write.yml): the agent writes, a job without secrets verifies, the App commits. This is the default,
 # and it stays on until somebody switches it off on purpose: label `no-auto-pr-agent` on a pull request, or the repository variable
 # AGENT_AUTO_WRITE=0 (a pull request can then opt back in with the label `auto-pr-agent`). Limits: bot pushes never start this
-# workflow (no loop), a push by a person starts it again (that is the re-arm), at most AGENT_AUTO_WRITE_MAX agent commits per pull
+# workflow (no loop), a push by a person starts it again (that is the re-arm), at most AGENT_AUTO_WRITE_MAX agent write runs (attempts, committed or not) per pull
 # request. People can also still ask by comment (`agent coverage`), and review the result like any commit (`agent remove <sha>` undoes it).
 #
 # Why `pull_request_target`: the model key is a secret, and a `pull_request` workflow runs the version of the workflow that
@@ -394,11 +394,12 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p dl
-          # Commits the agent already made here: bot-authored, with the message the commit job writes.
-          commits=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits" \
-            --jq '[.[] | select(.author.type == "Bot" and (.commit.message | test("^test\\([^)]*\\): (created|updated) tests via agent")))] | length' \
-            | awk '{n += $1} END {print n + 0}') || commits=x
-          AGENT_COMMITS=$commits .github/scripts/select-auto-write.sh >result.json
+          # Write runs the agent already made here, whether or not they committed (each costs a model run): the report comment
+          # every run posts, bot-authored, with the run-marker. A person cannot fake it: comments by users do not count.
+          attempts=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '[.[] | select(.user.type == "Bot" and (.body | startswith("<!-- tf-test-agent-run ")))] | length' \
+            | awk '{n += $1} END {print n + 0}') || attempts=x
+          AGENT_ATTEMPTS=$attempts .github/scripts/select-auto-write.sh >result.json
           jq . result.json
           {
             echo "matrix=$(jq -c .matrix result.json)"
