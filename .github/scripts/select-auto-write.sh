@@ -8,8 +8,9 @@
 #        DEFAULT_ON     "0" = automatic writing is switched off for the repository (repository variable AGENT_AUTO_WRITE=0); then only a
 #                       pull request with the label "auto-pr-agent" gets it. Anything else, or unset = on for every pull request
 #        LABELS         JSON array of the pull request's label names. "no-auto-pr-agent" always wins (opt-out)
-#        AGENT_COMMITS  number of commits the agent has already made on this pull request
-#        MAX            cap on those commits
+#        AGENT_ATTEMPTS number of write runs the agent has already made on this pull request, whether or not they committed
+#                       (each costs a model run; counted from the report comment every run posts)
+#        MAX            cap on those attempts
 #        HEAD_REF       branch name (same pattern the comment commands require)
 # Output (stdout): {"matrix":[...], "reason":"..."}  (reason is empty when something was selected or nothing needed tests)
 set -euo pipefail
@@ -27,9 +28,9 @@ if [[ "${DEFAULT_ON:-1}" == 0 ]] && ! jq -e 'index("auto-pr-agent")' <<<"${LABEL
   out '[]' "automatic writing is switched off for this repository (AGENT_AUTO_WRITE=0); add the label auto-pr-agent to this pull request to let the agent commit tests by itself"; exit 0
 fi
 if [[ ! "${HEAD_REF:-}" =~ ^[A-Za-z0-9._/-]+$ ]]; then out '[]' "the branch name has characters the agent does not accept"; exit 0; fi
-commits=${AGENT_COMMITS:-0}; max=${MAX:-3}
-if [[ ! "$commits" =~ ^[0-9]+$ || ! "$max" =~ ^[0-9]+$ ]]; then out '[]' "could not count the agent's commits"; exit 0; fi
-if (( commits >= max )); then out '[]' "the agent already made $commits commits on this pull request (limit $max)"; exit 0; fi
+attempts=${AGENT_ATTEMPTS:-0}; max=${MAX:-3}
+if [[ ! "$attempts" =~ ^[0-9]+$ || ! "$max" =~ ^[0-9]+$ ]]; then out '[]' "could not count the agent's earlier runs"; exit 0; fi
+if (( attempts >= max )); then out '[]' "the agent already made $attempts write runs on this pull request (limit $max)"; exit 0; fi
 
 selected='[]'
 n=$(jq length <<<"$MATRIX")
@@ -43,5 +44,5 @@ for i in $(seq 0 $((n - 1))); do
   fi
 done
 # Only as many directories as the cap leaves room for, so a wide change cannot exceed it in one run.
-room=$((max - commits))
+room=$((max - attempts))
 out "$(jq -c --argjson k "$room" '.[:$k]' <<<"$selected")" ""

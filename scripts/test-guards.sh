@@ -543,7 +543,7 @@ echo '{"dir":"modules/b","decision":"no_change_needed"}' >rep/modules-b.json
 echo '{"dir":"modules/OTHER","decision":"tests_needed"}' >rep/modules-c.json      # dir does not match the slug's directory
 echo '{"dir":"modules/d","decision":"tests_need_update"}' >rep/modules-d.json
 # the helper models the shipped default: no labels and no repository switch, i.e. automatic writing is on
-sel() { MATRIX="$m" REPORT_DIR=rep HEAD_REF=feat/x AGENT_COMMITS=${AGENT_COMMITS:-0} MAX=${MAX:-3} LABELS=${LABELS-'[]'} DEFAULT_ON=${DEFAULT_ON-} "$scripts/select-auto-write.sh"; }
+sel() { MATRIX="$m" REPORT_DIR=rep HEAD_REF=feat/x AGENT_ATTEMPTS=${AGENT_ATTEMPTS:-0} MAX=${MAX:-3} LABELS=${LABELS-'[]'} DEFAULT_ON=${DEFAULT_ON-} "$scripts/select-auto-write.sh"; }
 is "default: no label and no switch, automatic writing is ON; only needs-tests decisions with a matching dir are selected" "$(sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a,modules/d"
 is "unrelated labels change nothing" "$(LABELS='["bug","docs"]' sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a,modules/d"
 is "no-auto-pr-agent switches it off for the pull request, and the reason says how to re-enable" "$(LABELS='["x","no-auto-pr-agent"]' sel | jq -r '(.matrix|length|tostring) + ":" + (.reason|test("remove the label")|tostring)')" "0:true"
@@ -551,9 +551,9 @@ is "AGENT_AUTO_WRITE=0 switches it off for the repository, and the reason names 
 is "with the repository switched off, the label auto-pr-agent opts a pull request back in" "$(DEFAULT_ON=0 LABELS='["auto-pr-agent"]' sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a,modules/d"
 is "only the exact value 0 switches it off (a typo does not silently disable it)" "$(DEFAULT_ON=false sel | jq -r '.matrix|length') $(DEFAULT_ON=off sel | jq -r '.matrix|length')" "2 2"
 is "no-auto-pr-agent wins over auto-pr-agent and over the repository default" "$(LABELS='["auto-pr-agent","no-auto-pr-agent"]' DEFAULT_ON=1 sel | jq -r '.matrix|length')" 0
-is "cap reached selects nothing" "$(AGENT_COMMITS=3 sel | jq -r '.matrix|length')" 0
-is "cap leaves room for one directory" "$(AGENT_COMMITS=2 sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a"
-is "unknown commit count selects nothing" "$(AGENT_COMMITS=x sel | jq -r '.matrix|length')" 0
+is "cap reached selects nothing" "$(AGENT_ATTEMPTS=3 sel | jq -r '.matrix|length')" 0
+is "cap leaves room for one directory" "$(AGENT_ATTEMPTS=2 sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/a"
+is "unknown attempt count selects nothing" "$(AGENT_ATTEMPTS=x sel | jq -r '.matrix|length')" 0
 is "odd branch name selects nothing" "$(HEAD_REF='a;b' MATRIX="$m" REPORT_DIR=rep "$scripts/select-auto-write.sh" | jq -r '.matrix|length')" 0
 echo '{"dir":"modules/a","decision":"rm -rf /"}' >rep/modules-a.json
 is "unknown decision is not selected" "$(sel | jq -r '.matrix|map(.dir)|join(",")')" "modules/d"

@@ -5,7 +5,7 @@ with a fixed set of Terraform changes whose right answers are known, run through
 deterministic checks. No model is used as a judge.
 
 **Status:** the harness and the cases are built and tested offline (`scripts/test-evals.sh`, no spend). A first live baseline exists
-(`evals/baseline.json`, Haiku only: analysis 21/24, writer 18/18 first attempts). Results and caveats are in `docs/model-comparison.md`.
+(`evals/baseline.json`: Haiku analysis 21/24 and writer 18/18 first attempts; Sonnet analysis 8/8 once). Results and caveats are in `docs/model-comparison.md`.
 `kv-tenant-guid-covered` is a known-hard stretch case (0/3).
 
 ## What is measured
@@ -59,7 +59,7 @@ summarize.sh             Markdown: pass rate per model and stage, per criterion,
 **Budget.** `run.sh --budget` (default USD 5) first compares an *estimate* (`costs.json`) with the budget and refuses to start if it is
 higher; then it adds up the **real** `total_cost_usd` of each finished run and stops when the budget is reached. Runs go repeat by
 repeat, so a stop leaves complete earlier repeats. Skipped runs are recorded, not hidden. Replace the estimates with the measured means
-that `summarize.sh` prints (measured: Haiku analysis about USD 0.006, writer 0.011; Sonnet writer 0.104).
+that `summarize.sh` prints (measured: Haiku analysis about USD 0.006, writer 0.011; Sonnet analysis 0.074, writer 0.104).
 
 ## Security: the branch under test is data
 
@@ -70,6 +70,29 @@ out as **data** and never executed in that job:
 - `overlay-agent.sh` refuses an agent file whose frontmatter has any key other than `name, description, tools, skills`, a skill with any
   key other than `name, description, metadata`, and symlinks; settings, hooks and MCP configuration are never copied;
 - scoring, which runs Terraform on what a model wrote, happens in a job **without** the key.
+
+## Reproduce a run
+
+Locally (needs `claude` logged in, `jq`, `git`; Terraform for the scoring of writer runs):
+
+```
+evals/run.sh --out out --stage analysis --models claude-sonnet-5-5 --repeats 1 --budget 3 --dry-run   # estimate only, no spend
+evals/run.sh --out out --stage analysis --models claude-sonnet-5-5 --repeats 1 --budget 3             # real run
+evals/score.sh --runs out --out scores --index out/runs.jsonl                                         # no key; writer runs need terraform
+evals/summarize.sh scores/scores.jsonl evals/baseline.json                                            # report + regressions
+```
+
+On GitHub (the model key is only available in the environment `tf-ai-agent`, which is limited to `main`, so the workflow runs from `main`
+and evaluates the agent of the branch given as `ref`):
+
+```
+evals/ci-run.sh --models claude-sonnet-5-5 --stage analysis --repeats 1 --budget 3   # starts tf-ai-eval, waits, prints the summary
+evals/ci-run.sh --dry-run --models both --repeats 3 --budget 10                      # shows the gh command only
+```
+
+or Actions, `tf-ai-eval`, Run workflow. Each model has its own hard budget (USD per model, at most 20); the `plan` job prints the
+estimate first. Results land in `eval-results/<run id>/` (git-ignored). To make a run the new baseline, write
+`evals/summarize.sh --json scores/scores.jsonl > evals/baseline.json` and commit it with the reason.
 
 ## Cost figures
 

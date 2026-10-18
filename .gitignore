@@ -11,3 +11,4 @@ crash.log
 .pre-commit-cache/
 .codegraph/
 *.pem
+eval-results/
