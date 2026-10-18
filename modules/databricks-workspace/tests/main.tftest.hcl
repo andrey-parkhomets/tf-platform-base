@@ -83,6 +83,15 @@ run "sku_standard_is_honoured" {
   }
 }
 
+run "sku_is_premium_when_not_set" {
+  command = plan
+
+  assert {
+    condition     = azurerm_databricks_workspace.this.sku == "premium"
+    error_message = "The workspace sku must be premium when no sku is given."
+  }
+}
+
 run "rejects_unknown_sku" {
   command = plan
 
