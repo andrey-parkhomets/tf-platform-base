@@ -1,0 +1,10 @@
+diff --git a/modules/web-site/locals.tf b/modules/web-site/locals.tf
+index 6e6996b..cdf5b48 100644
+--- a/modules/web-site/locals.tf
++++ b/modules/web-site/locals.tf
+@@ -1,4 +1,5 @@
+ locals {
++  # The ARM kind is looked up by site kind, then by OS and container flags (see arm_kind_key).
+   arm_kind     = try(local.arm_kind_map[var.kind][local.arm_kind_key], "app")
+   arm_kind_key = local.is_linux ? (local.is_container ? "linux_container" : "linux") : (local.is_container ? "windows_container" : "windows")
+   arm_kind_map = {

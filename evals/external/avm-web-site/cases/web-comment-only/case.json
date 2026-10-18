@@ -1,0 +1,20 @@
+{
+  "id": "web-comment-only",
+  "description": "A comment-only change in a large module: no tests needed and no noise (a control for the effect of the index on false alarms).",
+  "base": "bba0c19ac45b79d22c6ecee59c90433f2b80bbf0",
+  "patch": "change.patch",
+  "dir": "modules/web-site",
+  "stages": {
+    "analysis": {
+      "decision": [
+        "no_change_needed"
+      ],
+      "must_not": [
+        {
+          "match": ".",
+          "min_severity": "low"
+        }
+      ]
+    }
+  }
+}

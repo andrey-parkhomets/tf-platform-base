@@ -1,0 +1,18 @@
+{
+  "id": "web-kind-map",
+  "description": "A value in local.arm_kind_map changes. local.arm_kind feeds the site body and the slot module call (main.slots.tf); the report must say slots are affected.",
+  "base": "bba0c19ac45b79d22c6ecee59c90433f2b80bbf0",
+  "patch": "change.patch",
+  "dir": "modules/web-site",
+  "stages": {
+    "analysis": {
+      "decision": [
+        "tests_needed",
+        "tests_need_update"
+      ],
+      "report_must": [
+        "slot"
+      ]
+    }
+  }
+}

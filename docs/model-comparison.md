@@ -69,6 +69,39 @@ Three arms through `evals/run.sh` (`AGENT_REF_DIR` selects the agent definition,
   5 of 11 `fa-sku-change` runs (A: 11 of 11). `explore` had hidden that risk, because it prints whole files and so made the agent read the
   module. Fixed with a rule that the graph does not replace reading the module: 8 of 8 on that case, 21/24 overall. The skill says so now.
 - **`kv-tenant-guid-covered` still fails 0/3 in every arm**; it is the known stretch case.
+
+### The same comparison on a large module (`terraform-azurerm-avm-res-web-site`, 4 cases x 5 repeats per arm, Haiku)
+
+The cases are in `evals/external/avm-web-site/` (see `evals/README.md`). Four arms, so the index and the skill rewrite can be told apart:
+
+| Arm | Agent definition | Index | Passed |
+|---|---|---|---|
+| A | `main` (`explore`) | yes | 13/20 |
+| D | `main` (`explore`) | no | 13/20 |
+| C | this change | no | 15/20 |
+| **B** | **this change** | **yes** | **19/20** |
+
+| Case | A | D | C | B |
+|---|---|---|---|---|
+| `web-subnet-validation` (variable reaches the resource through `local.body`) | 2/5 | 2/5 | 2/5 | **5/5** |
+| `web-kind-map` (fan-out to the slot module) | 5/5 | 4/5 | 5/5 | 5/5 |
+| `web-https-default` (security default flipped) | 5/5 | 5/5 | 5/5 | 5/5 |
+| `web-comment-only` (control) | 1/5 | 2/5 | 3/5 | 4/5 |
+
+- **The index helps only together with the new skill.** On the one case that needs a chain of references, the three arms without both
+  fail it 9 times in 15 on the same missing fact (they never say that the variable reaches the resource through `local.body`), and the
+  index plus the per-symbol workflow gets it 5 of 5. With the old `explore` workflow the index changed nothing (A = D = 13/20). That is
+  the first evidence in this repository that CodeGraph earns its place, and it is on a large module only.
+- **No difference where `Grep` is enough**: `web-https-default` is 5/5 everywhere, `web-kind-map` 4 or 5 of 5 (the word "slot" is easy to
+  find by searching).
+- **The control**: on a comment-only change, the arms on the old skill answered `tests_needed` 4 times in 10 (A 3, D 1) where B and C
+  never did. B's single failure is `no_change_needed` with an extra finding about the existing module, which `must_not` counts as noise;
+  that criterion is strict (the skill asks for findings about existing risks) and I would relax it before using the case for tuning.
+- **Cost**: output tokens per run were similar in all arms (7.0 to 7.5 thousand); the index did not make the run cheaper here.
+- **Caveats**: n=5 per cell, so a single case moving from 2/5 to 5/5 is suggestive, not proof; one model, one module; the cases and the
+  `report_must` criterion were written by me knowing what the index returns, which favours the arm that uses it. A first attempt scored
+  0/20 in every arm because the fixture lacked the `.gitignore` entries for `.agent/` and `.codegraph/` (the path guard flagged the
+  agent's own working files); the fixture was fixed and all arms rerun.
 - The CLI used (2.1.292) prices Haiku about 50 times too high (USD 7 per 24 runs reported; real spend was a few cents per run), which
   exhausted the budget guard of the first attempt at 10 of 24 runs. Compare tokens, not the USD column.
 

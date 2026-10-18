@@ -45,6 +45,33 @@ change when the modules do. `case.json` says what the right answer is:
 Every production bug becomes a case. `scripts/test-evals.sh` checks that each case stays valid: its base is in the history, its patch
 applies, its regexes compile, its decisions and severities are legal.
 
+## External cases: a large module (`evals/external/avm-web-site/`)
+
+The eight cases above run on this repository, whose modules are small. To test what a large module changes (does the code index
+help when `var.x` reaches a resource through locals?), `evals/external/avm-web-site/` holds four analysis cases on
+[Azure/terraform-azurerm-avm-res-web-site](https://github.com/Azure/terraform-azurerm-avm-res-web-site) (223 `.tf` files, 30 tests),
+pinned at `56c704e`. `build-fixture.sh` clones that commit and lays it out as `modules/web-site/` in a throw-away repository with a fixed
+identity and date, so its commit id (the `base` of the cases) is the same everywhere; the cases are patches on top of it.
+
+| Case | Change | Checks |
+|---|---|---|
+| `web-subnet-validation` | a validation on the root `virtual_network_subnet_id` | the report names `local.body`, the only way the variable reaches the resource (`report_must`) |
+| `web-kind-map` | a value in `local.arm_kind_map` changes | the report says the slot module is affected too (`report_must`) |
+| `web-https-default` | `https_only` default flips to `false` | a finding of at least medium severity about HTTPS |
+| `web-comment-only` | a comment in `locals.tf` | `no_change_needed`, and no findings (a control for false alarms) |
+
+`report_must` is a scoring criterion for these cases: every regex must match somewhere in the report that would be posted (rationale,
+changed behaviours, callers, test plan, findings). It rewards facts that only following references through the code reveals.
+
+```
+S=$(mktemp -d); evals/external/avm-web-site/build-fixture.sh $S/fx            # prints the fixture commit id
+export EVAL_REPO=$S/fx EVAL_SCRIPTS=$PWD/.github/scripts CASES_DIR=$PWD/evals/external/avm-web-site/cases
+EVAL_CODEGRAPH=1 evals/run.sh --out out --stage analysis --models claude-haiku-5-5 --repeats 5 --budget 30   # then score.sh / summarize.sh as above
+```
+
+Set `AGENT_REF_DIR` to a checkout of another branch to compare agent definitions, and `EVAL_CODEGRAPH=0` to run without the index.
+`AVM_SOURCE=<local clone> scripts/test-evals.sh` also rebuilds the fixture and checks the commit id and that every patch applies.
+
 ## How a run works
 
 ```
