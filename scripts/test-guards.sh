@@ -375,6 +375,19 @@ echo '{"dir":"modules/a","round":2,"ok":false,"results":{"quality":"pass","test"
 out=$(MATRIX='[{"dir":"modules/a","slug":"modules-a"}]' "$scripts/render-report.sh")
 is "a failed second round is not described as a fix" "$(grep -c 'fixed the tests' <<<"$out") $(grep -c 'failed as well' <<<"$out")" "0 1"
 
+echo "== render-report.sh: every way of having no agent report is stated"
+r="$tmp/rn"; mkdir -p "$r/.agent/report" "$r/.agent/verify"; cd "$r" || exit 1
+m='[{"dir":"modules/a","slug":"modules-a"}]'
+out=$(MATRIX="$m" JOB_RESULTS='{"agent":"failure"}' "$scripts/render-report.sh")
+is "agent step failed" "$(grep -c 'agent step failed' <<<"$out")" 1
+out=$(MATRIX="$m" JOB_RESULTS='{"agent":"cancelled"}' "$scripts/render-report.sh")
+is "agent job cancelled or timed out" "$(grep -c 'cancelled or timed out' <<<"$out")" 1
+out=$(MATRIX="$m" JOB_RESULTS='{"agent":"success"}' "$scripts/render-report.sh")
+is "agent succeeded but wrote no report" "$(grep -c 'no agent report was produced' <<<"$out")" 1
+echo '{"skipped":"agent_definition_not_on_base"}' >.agent/report/modules-a.json
+out=$(MATRIX="$m" JOB_RESULTS='{"agent":"skipped"}' "$scripts/render-report.sh")
+is "agent definition not on the base" "$(grep -c 'not on the base branch' <<<"$out")" 1
+
 echo "== secrets are only used by jobs that declare the environment"
 cd "$repo" || exit 1
 offenders=""

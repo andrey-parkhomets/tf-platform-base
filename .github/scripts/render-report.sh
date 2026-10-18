@@ -67,6 +67,9 @@ for i in $(seq 0 $((count - 1))); do
       echo "**Decision:** none. The agent was skipped: the agent definition (\`.claude/agents/tf-test-agent.md\`) is not on the base branch yet, and the action only loads agent definitions from the base branch."
     elif [[ $agent_result == failure ]]; then
       echo "**Decision:** none. The agent step failed for this run (see the workflow run for the reason, for example a turn limit). Tests it had already written are still verified below."
+    elif [[ $agent_result == cancelled ]]; then
+      # A job that hits timeout-minutes ends as cancelled, so this is also what a timeout looks like.
+      echo "**Decision:** none. The agent job was cancelled or timed out before it wrote a report (see the workflow run). Tests it had already written are still verified below."
     else
       echo "**Decision:** no agent report was produced for this directory (the agent runs only for same-repository pull requests)."
     fi
