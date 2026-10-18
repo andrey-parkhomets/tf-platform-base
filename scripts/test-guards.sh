@@ -315,6 +315,7 @@ is "every job that runs the agent builds a fresh index (init, not sync)" "$(grep
 for f in analyze write; do
   is "the $f tool list allows codegraph node and explore, and nothing else of codegraph" "$(tr ',' '\n' <".github/agent/tools/$f.txt" | grep -o 'codegraph [a-z]* \*' | sort | tr '\n' ',')" "codegraph explore *,codegraph node *,"
 done
+is "the skill says CodeGraph does not replace reading the module (found by the evaluation: existing unsafe settings were missed)" "$(grep -c 'does not replace reading the module' .claude/skills/tf-change-analysis/SKILL.md)" 1
 is "the skill tells the agent that CodeGraph does not index tests" "$(grep -c 'does not index `\*.tftest.hcl`' .claude/skills/tf-change-analysis/SKILL.md)" 1
 
 echo "== tf-ai-eval: the branch under test is data"

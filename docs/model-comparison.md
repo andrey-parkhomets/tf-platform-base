@@ -50,6 +50,28 @@ Costs are the CLI's own estimate (see "What the evaluation found about the pipel
 - Seven harness bugs that offline tests could not show (relative paths twice, a flat artifact download, a worktree layout, a global signing setting,
   placeholder files, a jq `//` slip). Each has a regression test.
 
+## CodeGraph: does it help the analysis? (local run, Haiku, 8 cases x 3 repeats, 2026-10-18)
+
+Three arms through `evals/run.sh` (`AGENT_REF_DIR` selects the agent definition, `EVAL_CODEGRAPH` the index):
+
+| Arm | Agent definition | Index | Passed | Output tokens, mean | Turns |
+|---|---|---|---|---|---|
+| A | `main` (`explore` only) | yes | 21/24 | 5461 | 15 |
+| B | this change, first version | yes | 20/24 | 5432 | 16 |
+| C | this change, first version | no | 19/24 | 5591 | 17 |
+| B3 | this change, with the "read the module" rule | yes | 21/24 | 6101 | 17 |
+
+- **Index versus none: no measurable difference in decisions** (21, 20, 19 of 24 is within noise). These modules have a handful of files;
+  the model can read them. The benefit expected on a module like `terraform-azurerm-avm-res-web-site` (223 files, where `var.x` reaches
+  resources through `local.body`) is **not tested**: no case is that large. A case on a large module is the next thing to add.
+- **The first version of the skill was a regression the suite caught.** Telling the agent to query `codegraph node` per changed symbol
+  made it report a precise impact list for a SKU change and skip the module: the pre-existing `ftps_state = "AllAllowed"` was missed in
+  5 of 11 `fa-sku-change` runs (A: 11 of 11). `explore` had hidden that risk, because it prints whole files and so made the agent read the
+  module. Fixed with a rule that the graph does not replace reading the module: 8 of 8 on that case, 21/24 overall. The skill says so now.
+- **`kv-tenant-guid-covered` still fails 0/3 in every arm**; it is the known stretch case.
+- The CLI used (2.1.292) prices Haiku about 50 times too high (USD 7 per 24 runs reported; real spend was a few cents per run), which
+  exhausted the budget guard of the first attempt at 10 of 24 runs. Compare tokens, not the USD column.
+
 ## Recommendation
 
 Keep `claude-haiku-5-5` for both stages (the default). Run the suite when the model, a prompt or a skill changes, and compare with

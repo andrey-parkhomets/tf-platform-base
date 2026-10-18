@@ -81,6 +81,11 @@ grepping a variable name returns every doc string and object attribute with the 
 - **Follow the chain until you reach a resource, output or module call.** A variable is usually read by a `local`, and the
   summary stops there: `var.x` is called by `local.body`, so run `codegraph node body` to see `azapi_resource.this`. Stop when
   the caller is a resource, an output or a `module` call. That is the behaviour a test has to assert.
+- **CodeGraph does not replace reading the module.** `node` shows one symbol and its neighbours, so it will never show you an
+  unsafe setting that was already there (FTP allowed, public access on). Those are findings too (`tf-review-findings`). After
+  the graph, `Read` the target's resource files (`main.tf` and any file that defines a resource the change touches) in full.
+  An evaluation showed what happens otherwise: with only the graph, a SKU change got a precise impact list and the module's
+  `ftps_state = "AllAllowed"` was missed in 5 of 11 runs; reading the module fixed it.
 - **Use `codegraph explore` only to find names you do not know yet**, with symbol names, not a question. Natural-language
   queries pull in `examples/` and unrelated resources, and print long source you do not need.
 - **CodeGraph does not index `*.tftest.hcl`. "No tests found" in its output means nothing.** Find existing coverage with
