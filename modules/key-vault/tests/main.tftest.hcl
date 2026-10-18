@@ -68,3 +68,47 @@ run "accepts_all_zero_placeholder_tenant_used_by_stack_inputs" {
     error_message = "The all-zero placeholder GUID used by the stack inputs must pass validation and be passed to the vault unchanged."
   }
 }
+
+run "denies_network_by_default_and_allows_only_the_given_subnets" {
+  command = plan
+
+  variables {
+    allowed_subnet_ids = ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/snet-a"]
+  }
+
+  assert {
+    condition     = azurerm_key_vault.this.network_acls[0].default_action == "Deny"
+    error_message = "The vault firewall must deny traffic by default."
+  }
+
+  assert {
+    condition     = length(azurerm_key_vault.this.network_acls[0].virtual_network_subnet_ids) == 1
+    error_message = "Expected exactly the one subnet from allowed_subnet_ids in the vault firewall."
+  }
+}
+
+run "name_location_and_tags_come_from_inputs" {
+  command = plan
+
+  variables {
+    name = "kv-tp-tags"
+    tags = {
+      env = "dev"
+    }
+  }
+
+  assert {
+    condition     = azurerm_key_vault.this.name == "kv-tp-tags"
+    error_message = "The vault name must be the name input, unchanged."
+  }
+
+  assert {
+    condition     = azurerm_key_vault.this.location == "westeurope"
+    error_message = "The vault must be created in the location input."
+  }
+
+  assert {
+    condition     = azurerm_key_vault.this.tags["env"] == "dev"
+    error_message = "The vault must carry the tags given in the tags input."
+  }
+}
