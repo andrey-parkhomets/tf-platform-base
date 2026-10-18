@@ -165,6 +165,26 @@ so the agent must not bless insecure behaviour (for example `ftps_state = "AllAl
 - Stacks are treated like modules by the tooling, but their tests are out of scope: without integration tests they add little
   beyond the module tests.
 
+### How "in the context of the pull request" is read
+
+The assignment asks that results be "available in the context of the pull request that started the run", that the agent
+"works inside that pull request" and that it "does not open other pull requests". The text does not say whether the tests
+themselves are delivered as a commit or as a patch in a comment. This solution reads it as follows, and that reading is a
+**human decision of the author, not something the assignment dictates**:
+
+- **Results** (decision, verification, findings) are comments on the pull request. Nothing is kept only in an artifact.
+- **The tests** are committed to the pull request's own branch, after a job without secrets has run them. This is what "works
+  inside that pull request" is taken to allow, since a separate fix pull request is ruled out. It is a permission to commit
+  test files and nothing else; the path guard rejects every other path.
+- **Collaboration continues through comments.** People answer in the pull request: inline comments on the test lines, then
+  `agent check comments`; `agent coverage` to ask for tests; `agent remove <sha>` to undo. The agent answers in the same threads.
+
+What this costs: the bot writes to the author's branch, which needs a write token (held only by the commit job) and moves the
+branch under the author. The alternative reading, a patch in the comment for a maintainer to apply, needs no write token and
+no branch change, but gives up the diff review and the comment-and-revise loop. It is **not implemented**. `AGENT_AUTO_WRITE=0` stops the
+automatic commits (the analysis comment then serves as advice), but `agent coverage` still commits when a person asks for it; a team
+that wants no bot commits at all would need that suggest-only mode.
+
 ## Limitations
 
 - Automatic writing means the branch of any pull request that nobody switched off can move under its author. The switches exist, but
