@@ -1,0 +1,21 @@
+{
+  "id": "web-https-default",
+  "description": "The https_only default flips from true to false: a security regression that must be reported at medium or above.",
+  "base": "bba0c19ac45b79d22c6ecee59c90433f2b80bbf0",
+  "patch": "change.patch",
+  "dir": "modules/web-site",
+  "stages": {
+    "analysis": {
+      "decision": [
+        "tests_needed",
+        "tests_need_update"
+      ],
+      "must": [
+        {
+          "match": "https",
+          "min_severity": "medium"
+        }
+      ]
+    }
+  }
+}

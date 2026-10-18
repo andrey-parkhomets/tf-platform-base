@@ -162,6 +162,16 @@ is "findings are scored as they would be posted: a hostile severity becomes info
 mkrun "$tmp/s11" '{"decision":"tests_needed","findings":[{"severity":"medium","file":"public.tf`](https://evil)","title":"x","detail":"y"}]}'
 is "scoring uses the cleaned report: a requirement met only through a path that the filter rejects is not met" "$(sa "$tmp/s11" | jq -r .must_ok)" false
 
+# report_must: facts that only following references reveals (found by the CodeGraph evaluation on the AVM web-site module)
+mkdir -p "$tmp/rm-case"; echo '{"id":"c3","stages":{"analysis":{"decision":["tests_needed"],"report_must":["slot","locals?\\.body"]}}}' >"$tmp/rm-case/case.json"
+sa3() { "$lib/score-analysis.sh" "$tmp/rm-case" "$1"; }
+rep3='{"decision":"tests_needed","rationale":"local.body feeds the site","changed_behaviours":["the slot module call also gets the kind"],"findings":[]}'
+mkrun "$tmp/r1" "$rep3";                                          is "report_must: every regex found in the rationale or the behaviours passes" "$(sa3 "$tmp/r1" | jq -c '[.pass,.report_must_ok,.report_missing]')" "[true,true,[]]"
+mkrun "$tmp/r2" "${rep3/the slot module call/the second call}";   is "report_must: a missing fact fails and is named" "$(sa3 "$tmp/r2" | jq -c '[.pass,.report_must_ok,.report_missing]')" '[false,false,["slot"]]'
+mkrun "$tmp/r3" '{"decision":"tests_needed","findings":[{"severity":"low","file":"modules/m1/main.tf","title":"slot","detail":"locals.body"}]}'
+is "report_must: a finding's title and detail count" "$(sa3 "$tmp/r3" | jq -r .report_must_ok)" true
+mkrun "$tmp/r4" "${rep3/SLOT/x}"; is "a case without report_must is not affected" "$(sa "$tmp/s1" | jq -r .report_must_ok)" true
+
 echo "== evals: score-writer.sh"
 sw() { "$lib/score-writer.sh" "$tmp/cases/c1" "$1" "$2" "$3"; }
 mkdir -p "$tmp/tt"; echo 'run "a" {}' >"$tmp/tt/main.tftest.hcl"
@@ -240,6 +250,24 @@ for d in "$repo"/evals/cases/*/; do
 done
 is "every case has an id equal to its folder, the right shape, a base in the history, valid decisions, severities and regexes, and a patch that applies" "${badcases:-none}" none
 is "there are cases for both stages" "$(for d in "$repo"/evals/cases/*/; do jq -r '.stages | keys[]' "$d/case.json"; done | sort | uniq -c | awk '{printf "%s=%s ", $2, $1}')" "analysis=8 writer=6 "
+
+echo "== evals: the external cases (AVM web-site) stay valid"
+ext="$repo/evals/external/avm-web-site"; badext=""; bases=""
+for d in "$ext"/cases/*/; do
+  c="$d/case.json"; id=$(jq -r .id "$c" 2>/dev/null)
+  [[ "$id" == "$(basename "$d")" && "$id" =~ ^[a-z0-9-]+$ && -s "$d/change.patch" ]] || { badext="$badext $(basename "$d"):id-or-patch"; continue; }
+  jq -e '(.base | test("^[0-9a-f]{40}$")) and .dir == "modules/web-site" and (.stages | keys == ["analysis"]) and (.description | length > 10) and (.stages.analysis.decision | length > 0)' "$c" >/dev/null || badext="$badext $id:shape"
+  bases="$bases $(jq -r .base "$c")"
+  while IFS= read -r re; do jq -n --arg re "$re" '"x" | test($re; "i")' >/dev/null 2>&1 || badext="$badext $id:regex($re)"; done < <(jq -r '[(.stages.analysis.must // [])[].match, (.stages.analysis.must_not // [])[].match, (.stages.analysis.report_must // [])[]] | .[]' "$c")
+done
+is "every external case has the right shape, a patch and valid regexes" "${badext:-none}" none
+is "all external cases name the same fixture commit" "$(tr ' ' '\n' <<<"$bases" | grep -c . | tr -d ' ') $(tr ' ' '\n' <<<"$bases" | grep . | sort -u | wc -l | tr -d ' ')" "4 1"
+if [[ -n "${AVM_SOURCE:-}" ]]; then   # opt-in: needs a clone of the AVM module (or the network); proves the fixture commit id and that every patch applies
+  fx="$tmp/avm-fx"; got=$(EXPECTED_FIXTURE_COMMIT="$(tr ' ' '\n' <<<"$bases" | grep . | sort -u)" "$ext/build-fixture.sh" "$fx" 2>&1 | tail -1)
+  is "the fixture builds to the commit the cases name (deterministic)" "$got" "$(tr ' ' '\n' <<<"$bases" | grep . | sort -u)"
+  okp=0; for d in "$ext"/cases/*/; do git -C "$fx" apply --check "$d/change.patch" 2>/dev/null && okp=$((okp+1)); done
+  is "every external patch applies to the fixture" "$okp" 4
+else echo "SKIP  fixture build and patch check (set AVM_SOURCE to a clone of terraform-azurerm-avm-res-web-site to run it)"; fi
 
 echo
 echo "== evals: ci-run.sh (no gh call with --dry-run)"

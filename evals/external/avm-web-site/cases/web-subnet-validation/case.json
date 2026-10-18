@@ -1,0 +1,18 @@
+{
+  "id": "web-subnet-validation",
+  "description": "A validation on the root variable virtual_network_subnet_id. The variable reaches the resource only through local.body, which the report must name (the slot module has its own variable and is not affected).",
+  "base": "bba0c19ac45b79d22c6ecee59c90433f2b80bbf0",
+  "patch": "change.patch",
+  "dir": "modules/web-site",
+  "stages": {
+    "analysis": {
+      "decision": [
+        "tests_needed",
+        "tests_need_update"
+      ],
+      "report_must": [
+        "locals?\\.body"
+      ]
+    }
+  }
+}

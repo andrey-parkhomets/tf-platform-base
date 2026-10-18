@@ -1,0 +1,16 @@
+diff --git a/modules/web-site/variables.tf b/modules/web-site/variables.tf
+index d7fd450..c65425b 100644
+--- a/modules/web-site/variables.tf
++++ b/modules/web-site/variables.tf
+@@ -2576,6 +2576,11 @@ variable "virtual_network_subnet_id" {
+   type        = string
+   default     = null
+   description = "The ID of the subnet to deploy the App Service in for regional VNet integration."
++
++  validation {
++    condition     = var.virtual_network_subnet_id == null || can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.Network/virtualNetworks/[^/]+/subnets/[^/]+$", var.virtual_network_subnet_id))
++    error_message = "virtual_network_subnet_id must be the resource ID of a subnet."
++  }
+ }
+ 
+ variable "vnet_application_traffic_enabled" {

@@ -308,6 +308,16 @@ is "no workflow carries an inline agent prompt (they use .github/agent/ through 
 is "the two workflows that run the model render their prompt and tools" "$(grep -l 'render-agent-config.sh' .github/workflows/*.yml | xargs -n1 basename | sort | tr '\n' ' ')" "reusable-tf-ai-round.yml tf-ai-analysis.yml "
 is "no workflow hard-codes an --allowedTools list" "$(grep -c -- '--allowedTools "[A-Za-z]' .github/workflows/*.yml | awk -F: '{s+=$2} END{print s}')" 0
 
+echo "== CodeGraph: indexed per job, never cached; the agent may call node and explore"
+cd "$repo" || exit 1
+is "no workflow caches or restores the CodeGraph index" "$(grep -lE 'path: \.codegraph|key: codegraph-' .github/workflows/*.yml | wc -l | tr -d ' ')" 0
+is "every job that runs the agent builds a fresh index (init, not sync)" "$(grep -c 'codegraph init \.' .github/workflows/tf-ai-analysis.yml .github/workflows/reusable-tf-ai-round.yml | awk -F: '{s+=$2} END{print s}') $(grep -c 'codegraph sync' .github/workflows/*.yml | awk -F: '{s+=$2} END{print s}')" "2 0"
+for f in analyze write; do
+  is "the $f tool list allows codegraph node and explore, and nothing else of codegraph" "$(tr ',' '\n' <".github/agent/tools/$f.txt" | grep -o 'codegraph [a-z]* \*' | sort | tr '\n' ',')" "codegraph explore *,codegraph node *,"
+done
+is "the skill says CodeGraph does not replace reading the module (found by the evaluation: existing unsafe settings were missed)" "$(grep -c 'does not replace reading the module' .claude/skills/tf-change-analysis/SKILL.md)" 1
+is "the skill tells the agent that CodeGraph does not index tests" "$(grep -c 'does not index `\*.tftest.hcl`' .claude/skills/tf-change-analysis/SKILL.md)" 1
+
 echo "== tf-ai-eval: the branch under test is data"
 cd "$repo" || exit 1
 is "no step of the evaluation workflow runs a script from the branch under test (ref/)" "$(grep -cE '(^|[^A-Za-z0-9_./-])\.?/?ref/[A-Za-z0-9._/-]*\.sh' .github/workflows/tf-ai-eval.yml)" 0

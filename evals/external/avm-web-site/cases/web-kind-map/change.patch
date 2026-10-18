@@ -1,0 +1,13 @@
+diff --git a/modules/web-site/locals.tf b/modules/web-site/locals.tf
+index 6e6996b..88bd1a4 100644
+--- a/modules/web-site/locals.tf
++++ b/modules/web-site/locals.tf
+@@ -11,7 +11,7 @@ locals {
+     functionapp = {
+       linux             = "functionapp,linux"
+       linux_container   = "functionapp,linux,container"
+-      windows           = "functionapp"
++      windows           = "functionapp,windows"
+       windows_container = "functionapp"
+     }
+     logicapp = {

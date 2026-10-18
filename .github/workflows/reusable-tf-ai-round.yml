@@ -156,14 +156,7 @@ jobs:
           { head -n 120 ".agent/prev-verify/$SLUG.log"; echo "[...]"; tail -n 80 ".agent/prev-verify/$SLUG.log"; } >.agent/verify-log.txt 2>/dev/null || : >.agent/verify-log.txt
           wc -l .agent/verify-log.txt
 
-      - name: Restore CodeGraph index
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .codegraph
-          key: codegraph-${{ runner.os }}-${{ env.CODEGRAPH_VERSION }}-${{ inputs.base_sha }}
-          restore-keys: |
-            codegraph-${{ runner.os }}-${{ env.CODEGRAPH_VERSION }}-
-      - name: Prepare CodeGraph (incremental sync, full index on a cache miss) and the agent's inputs
+      - name: Prepare CodeGraph (fresh index of this checkout, no cache) and the agent's inputs
         env:
           DIR: ${{ matrix.dir }}
         run: |
@@ -172,7 +165,7 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/codegraph" --ignore-scripts "@colbymchenry/codegraph@${CODEGRAPH_VERSION}"
           export PATH="$RUNNER_TEMP/codegraph/node_modules/.bin:$PATH"
           echo "$RUNNER_TEMP/codegraph/node_modules/.bin" >>"$GITHUB_PATH"
-          if [ -d .codegraph ]; then codegraph sync . ; else codegraph init . ; fi
+          codegraph init .
           mkdir -p .agent/report
           # Only the findings below the target directory, each marked new / existing against the base commit (scope-sarif.sh).
           head=.agent/checkov-dl/results.sarif; basef=.agent/checkov-dl/results-base.sarif

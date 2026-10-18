@@ -1,0 +1,15 @@
+diff --git a/modules/web-site/variables.tf b/modules/web-site/variables.tf
+index d7fd450..5cbc42a 100644
+--- a/modules/web-site/variables.tf
++++ b/modules/web-site/variables.tf
+@@ -1313,8 +1313,8 @@ variable "hosting_environment_id" {
+ 
+ variable "https_only" {
+   type        = bool
+-  default     = true
+-  description = "Should the App Service only be accessible over HTTPS? Defaults to `true`."
++  default     = false
++  description = "Should the App Service only be accessible over HTTPS? Defaults to `false`."
+ }
+ 
+ variable "hyper_v" {
