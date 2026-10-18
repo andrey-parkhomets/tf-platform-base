@@ -16,6 +16,11 @@ variable "location" {
 variable "tenant_id" {
   description = "Microsoft Entra tenant that owns the vault."
   type        = string
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.tenant_id))
+    error_message = "The tenant_id must be a GUID."
+  }
 }
 
 variable "secret_readers" {
