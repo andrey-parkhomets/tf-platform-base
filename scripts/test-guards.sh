@@ -388,6 +388,11 @@ echo '{"skipped":"agent_definition_not_on_base"}' >.agent/report/modules-a.json
 out=$(MATRIX="$m" JOB_RESULTS='{"agent":"skipped"}' "$scripts/render-report.sh")
 is "agent definition not on the base" "$(grep -c 'not on the base branch' <<<"$out")" 1
 
+echo "== the agent definition agrees with the documented default (automatic writing)"
+def="$repo/.claude/agents/tf-test-agent.md"
+is "description says writing is automatic as well as on request" "$(sed -n 3p "$def" | grep -c 'automatically after an analysis')" 1
+is "analyze mode does not say a person must decide to ask for the tests" "$(grep -c 'decide whether to ask' "$def")" 0
+
 echo "== secrets are only used by jobs that declare the environment"
 cd "$repo" || exit 1
 offenders=""
