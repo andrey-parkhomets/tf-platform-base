@@ -72,6 +72,7 @@ printf '%b' "$good" >modules/m1/tests/a.tftest.hcl;                         expe
 printf 'run "a" {\n  command = apply\n  assert {\n    condition = 1 == 1\n    error_message = "x"\n  }\n}\n' >modules/m1/tests/a.tftest.hcl
 expect_rc "command = apply fails" 1 "$scripts/check-test-quality.sh" modules/m1
 printf 'run "a" {\n  command = plan\n}\n' >modules/m1/tests/a.tftest.hcl;  expect_rc "run without assert fails" 1 "$scripts/check-test-quality.sh" modules/m1
+printf '# nothing here\nvariables {\n  x = 1\n}\n' >modules/m1/tests/a.tftest.hcl;  expect_rc "a test file without any run block fails" 1 "$scripts/check-test-quality.sh" modules/m1
 printf 'run "a" {\n  command = plan\n  assert {\n    condition = true\n    error_message = "x"\n  }\n}\n' >modules/m1/tests/a.tftest.hcl
 expect_rc "constant true condition fails" 1 "$scripts/check-test-quality.sh" modules/m1
 printf 'run "a" {\n  command = plan\n  variables {\n    x = 1\n  }\n  expect_failures = [var.x]\n}\n' >modules/m1/tests/a.tftest.hcl
@@ -356,6 +357,12 @@ is "the log tells the agent what to fix" "$(grep -c 'has no assert' .agent/verif
 printf 'run "ok" {\n  command = plan\n  assert {\n    condition     = 1 == 1 || var.x\n    error_message = "m"\n  }\n}\n' >modules/m1/tests/a.tftest.hcl
 PATH="$tmp/stubbin:$PATH" "$scripts/verify-module.sh" modules/m1 >/dev/null 2>&1; rc=$?
 is "a valid test passes, round defaults to 1" "$rc $(jq -r '.ok' .agent/verify/modules-m1.json) $(jq -r '.results.quality' .agent/verify/modules-m1.json) $(jq -r '.round' .agent/verify/modules-m1.json)" "0 true pass 1"
+# A test file the quality check accepts but in which nothing runs (all runs filtered out by the stub): exit 0 with "0 passed".
+printf '#!/usr/bin/env bash\ncase "$1" in test) echo "Success! 0 passed, 0 failed.";; esac\nexit 0\n' >"$tmp/stubbin/terraform"
+PATH="$tmp/stubbin:$PATH" "$scripts/verify-module.sh" modules/m1 >/dev/null 2>&1; rc=$?
+is "terraform test with 0 passed fails verification" "$rc $(jq -r '.ok' .agent/verify/modules-m1.json) $(jq -r '.results.test' .agent/verify/modules-m1.json)" "1 false fail"
+is "the log says nothing was verified" "$(grep -c 'nothing was verified' .agent/verify/modules-m1.log)" 1
+printf '#!/usr/bin/env bash\ncase "$1" in test) echo "Success! 1 passed, 0 failed.";; esac\nexit 0\n' >"$tmp/stubbin/terraform"
 
 echo "== render-report.sh: a fix round is visible"
 r="$tmp/rr"; mkdir -p "$r/.agent/report" "$r/.agent/verify"; cd "$r" || exit 1

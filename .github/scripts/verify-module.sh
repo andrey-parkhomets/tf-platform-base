@@ -38,6 +38,11 @@ if run init terraform init -backend=false -input=false -lockfile=readonly -no-co
   run validate terraform validate -no-color || ok=1
   if compgen -G "$dir/tests/*.tftest.hcl" >/dev/null; then
     run test terraform test -no-color || ok=1
+    # `terraform test` exits 0 when no run block executed ("Success! 0 passed, 0 failed."): that verifies nothing.
+    if [[ $(jq -r .test <<<"$results") == pass ]] && ! tail -5 "$log" | grep -qE '^Success[!a-z ]* [1-9][0-9]* passed'; then
+      echo "### test: no run block passed, so nothing was verified" >>"$log"
+      results=$(jq -c '. + {test: "fail"}' <<<"$results"); ok=1
+    fi
   else
     results=$(jq -c '. + {test: "none"}' <<<"$results")
   fi
