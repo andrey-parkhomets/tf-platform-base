@@ -34,7 +34,7 @@ Allowed events, one row per trigger used in `.github/workflows/`:
 | `pull_request` | `tf-check.yml` | lint, Checkov, verify and the hint comment on every PR |
 | `pull_request_target` | `tf-ai-analysis.yml` | the automatic analysis and the automatic writing of tests |
 | `issue_comment` | `tf-ai-commands.yml` | `agent coverage`, `agent check comments`, `agent remove` |
-| `push` | `tf-cache-warm.yml` | the provider and CodeGraph caches are no longer refreshed on `main` |
+| `push` | `tf-cache-warm.yml` | the provider and pre-commit caches are no longer refreshed on `main` |
 | `schedule` | `tf-cache-warm.yml` | the scheduled cache refresh |
 | `workflow_dispatch` | `tf-cache-warm.yml`, `tf-ai-eval.yml` | running `tf-cache-warm` by hand; running the evaluation suite |
 

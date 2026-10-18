@@ -3,6 +3,8 @@ name: tf-cache-warm
 # Only runs on main. Pull request runs restore these caches and never write them, so a pull request
 # cannot plant a provider binary or an index that later runs trust. Provider binaries are still
 # checked against the hashes in each .terraform.lock.hcl on every `terraform init`.
+# There is no CodeGraph cache on purpose: indexing a module takes about a second, so every job builds its own index from the
+# checkout it analyses (nothing stale to trust, nothing to evict).
 on:
   push:
     branches: [main]
@@ -20,7 +22,6 @@ permissions: {}
 
 env:
   TF_VERSION: "1.15.1"
-  CODEGRAPH_VERSION: "1.6.2"
 
 jobs:
   warm:
@@ -35,9 +36,6 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "22"
 
       # The cache path is part of the cache version: it must be the same string here and in the jobs that restore it
       # (~/.terraform.d/plugin-cache), or every restore misses.
@@ -69,12 +67,3 @@ jobs:
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ runner.arch }}-py3.12-${{ hashFiles('.pre-commit-config.yaml', '.github/requirements.txt') }}
-
-      - name: Build the CodeGraph index
-        run: |
-          npm install --prefix "$RUNNER_TEMP/codegraph" --ignore-scripts "@colbymchenry/codegraph@${CODEGRAPH_VERSION}"
-          "$RUNNER_TEMP/codegraph/node_modules/.bin/codegraph" init .
-      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .codegraph
-          key: codegraph-${{ runner.os }}-${{ env.CODEGRAPH_VERSION }}-${{ github.sha }}
