@@ -67,6 +67,20 @@ run "names_derive_from_the_name_input" {
   }
 }
 
+run "service_plan_is_linux_ep2" {
+  command = plan
+
+  assert {
+    condition     = azurerm_service_plan.this.sku_name == "EP2"
+    error_message = "The service plan must use the EP2 Elastic Premium SKU."
+  }
+
+  assert {
+    condition     = azurerm_service_plan.this.os_type == "Linux"
+    error_message = "The service plan must be a Linux plan for the Linux function app."
+  }
+}
+
 run "python_version_defaults_and_overrides" {
   command = plan
 
