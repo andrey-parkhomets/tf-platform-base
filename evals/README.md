@@ -4,8 +4,9 @@ How well does the agent do its job, and does a change to the model, a prompt or 
 with a fixed set of Terraform changes whose right answers are known, run through the **same agent that ships**, and scored by
 deterministic checks. No model is used as a judge.
 
-**Status:** the harness and the cases are built and tested offline (`scripts/test-evals.sh`, no spend). The first live baseline has not
-been run yet, so this page states no pass rates. They go to `docs/model-comparison.md` when they exist.
+**Status:** the harness and the cases are built and tested offline (`scripts/test-evals.sh`, no spend). A first live baseline exists
+(`evals/baseline.json`, Haiku only: analysis 21/24, writer 18/18 first attempts). Results and caveats are in `docs/model-comparison.md`.
+`kv-tenant-guid-covered` is a known-hard stretch case (0/3).
 
 ## What is measured
 
@@ -58,7 +59,7 @@ summarize.sh             Markdown: pass rate per model and stage, per criterion,
 **Budget.** `run.sh --budget` (default USD 5) first compares an *estimate* (`costs.json`) with the budget and refuses to start if it is
 higher; then it adds up the **real** `total_cost_usd` of each finished run and stops when the budget is reached. Runs go repeat by
 repeat, so a stop leaves complete earlier repeats. Skipped runs are recorded, not hidden. Replace the estimates with the measured means
-that `summarize.sh` prints after the first baseline.
+that `summarize.sh` prints (measured: Haiku analysis about USD 0.006, writer 0.011; Sonnet writer 0.104).
 
 ## Security: the branch under test is data
 

@@ -243,6 +243,7 @@ jobs:
           path: ref
           sparse-checkout: |
             evals/cases
+            evals/baseline.json
             .github/agent
             .claude
           persist-credentials: false
@@ -297,7 +298,8 @@ jobs:
             echo
             echo "stage: \`$STAGE\`, repeats: $REPEATS, budget per model: USD $BUDGET, Claude Code CLI \`$CLI\`. The writer is scored on its first attempt (no fix round)."
             echo
-            main/evals/summarize.sh scores/scores.jsonl
+            # the baseline is data from the branch under test; a drop of more than 20 points in a pass rate is listed as a regression
+            main/evals/summarize.sh scores/scores.jsonl "$([ -f ref/evals/baseline.json ] && echo ref/evals/baseline.json)"
           } | tee scores/summary.md >>"$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
