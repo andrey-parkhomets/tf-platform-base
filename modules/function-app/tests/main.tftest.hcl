@@ -151,3 +151,17 @@ run "tags_reach_app_and_plan" {
     error_message = "Tags must be set on the app and on the service plan."
   }
 }
+
+run "service_plan_is_linux_ep2" {
+  command = plan
+
+  assert {
+    condition     = azurerm_service_plan.this.sku_name == "EP2"
+    error_message = "The service plan SKU must be EP2 (Elastic Premium), as set in main.tf."
+  }
+
+  assert {
+    condition     = azurerm_service_plan.this.os_type == "Linux"
+    error_message = "The service plan must be a Linux plan, because the app is a Linux function app."
+  }
+}
